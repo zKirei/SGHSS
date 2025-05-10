@@ -4,9 +4,8 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.pool import StaticPool
-
 from core.database import Base, get_db
-from core.models import Paciente, Profissional, LogAuditoria, Agendamento
+from core.models import Paciente, Profissional, Agendamento, LogAuditoria
 from core.security import gerar_hash_senha
 
 # Configuração do banco em memória para testes
@@ -50,14 +49,14 @@ def setup_database():
                 nome="Paciente Teste 1",
                 cpf="12345678909",
                 data_nascimento=date(2000, 1, 1),
-                telefone="11999999999",
+                telefone="(11) 99999-9999",  # Formato corrigido
                 consentimento_lgpd=True
             ),
             Paciente(
                 nome="Paciente Teste 2",
                 cpf="00987654321",
                 data_nascimento=date(2010, 5, 15),
-                telefone="21999999999",
+                telefone="(21) 9999-9999",  # Formato corrigido
                 consentimento_lgpd=True
             )
         ]
@@ -98,7 +97,7 @@ def setup_database():
 
         # Logs de auditoria
         db.add(LogAuditoria(
-            acao="SETUP_INICIAL",
+            acao="OUTRO",
             usuario="SISTEMA",
             detalhes="População inicial de dados de teste"
         ))
@@ -118,12 +117,11 @@ def db():
     transaction = connection.begin()
     db = SessionLocal(bind=connection)
 
-    # Habilita o debug de consultas
-    connection.execute = event.listens_for(connection, 'after_execute')(print)  # Opcional
 
     yield db
 
-    # Limpeza pós-teste
+    # Limpeza
+    db.close()
     transaction.rollback()
     connection.close()
 

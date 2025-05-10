@@ -1,172 +1,143 @@
-# core/services.py (versão melhorada)
+# core/services.py (versão corrigida e otimizada)
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import SQLAlchemyError
-from datetime import datetime, date
-from .models import Paciente, Agendamento, Profissional, LogAuditoria, StatusAgendamento
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
+from datetime import datetime, date, timedelta
+from .models import Base, Paciente, Agendamento, Profissional, LogAuditoria, StatusAgendamento
 from .security import sanitizar_input, gerar_hash_senha
 from .utils import validar_cpf, validar_telefone
 from typing import Optional
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
 class PacienteService:
     @staticmethod
     def criar_paciente(db: Session, dados: dict):
-        """Cria um novo paciente no sistema com validações e sanitização."""
+        """Cria paciente com validações reforçadas e tratamento de concorrência"""
         try:
-            # Validação dos campos obrigatórios
-            if not dados.get('nome'):
-                raise ValueError("Nome é obrigatório")
-                
-            if not dados.get('cpf'):
-                raise ValueError("CPF é obrigatório")
-                
-            if not dados.get('consentimento_lgpd', False):
-                raise ValueError("Consentimento LGPD é obrigatório")
-
-            # Validação de CPF e telefone
-            cpf = dados.get('cpf', '')
+            # Validação estrita do telefone
             telefone = dados.get('telefone', '')
-            
-            if not validar_cpf(cpf):
-                raise ValueError("CPF inválido! Verifique os dígitos verificadores.")
+            if not re.match(r'^\(\d{2}\)\s?\d{4,5}-?\d{4}$', telefone):
+                raise ValueError("Telefone inválido. Formato: (XX) XXXXX-XXXX")
+
+            # Restante das validações
+            if not validar_cpf(dados['cpf']):
+                raise ValueError("CPF inválido")
                 
-            if not validar_telefone(telefone):
-                raise ValueError("Telefone inválido! Deve conter DDD + número (ex: 41999999999).")
+            data_nascimento = datetime.strptime(dados['data_nascimento'], '%Y-%m-%d').date()
+            if data_nascimento > date.today():
+                raise ValueError("Data de nascimento futura")
 
-            # Converter e validar data
-            data_nascimento = PacienteService._converter_data(dados.get('data_nascimento'))
-
-            # Sanitização
+            # Sanitização completa
             paciente = Paciente(
-                cpf=sanitizar_input(cpf),
+                cpf=re.sub(r'\D', '', dados['cpf']),  # Remove caracteres não numéricos
                 nome=sanitizar_input(dados['nome']),
-                telefone=sanitizar_input(telefone),
+                telefone=telefone,
                 data_nascimento=data_nascimento,
-                consentimento_lgpd=dados.get('consentimento_lgpd', False),
-                historico_clinico=sanitizar_input(dados.get('historico_clinico', ''))
+                consentimento_lgpd=dados['consentimento_lgpd']
             )
 
             db.add(paciente)
             db.commit()
             
-            # Log de auditoria
-            log = LogAuditoria(
-                acao=f"CADASTRO_PACIENTE - ID: {paciente.id}",
-                usuario="SISTEMA",
-                data_hora=datetime.now()
-            )
-            db.add(log)
-            db.commit()
+            # Auditoria
+            LogAuditoria.registrar(db, "CADASTRO", "SISTEMA", f"Paciente {paciente.id} criado")
             
             return paciente
-            
-        except SQLAlchemyError as e:
+
+        except IntegrityError as e:
             db.rollback()
-            logger.error(f"Erro no cadastro: {str(e)}", exc_info=True)
-            raise ValueError(f"Falha no cadastro: {str(e)}") from e
-        except ValueError as e:
-            db.rollback()
-            logger.error(f"Erro de validação: {str(e)}")
+            if "UNIQUE constraint failed: pacientes.cpf" in str(e):
+                raise ValueError("CPF já cadastrado") from e
+            logger.error(f"Erro de integridade: {str(e)}")
             raise
         except Exception as e:
             db.rollback()
-            logger.error(f"Erro inesperado: {str(e)}", exc_info=True)
-            raise ValueError("Falha inesperada no cadastro") from e
+            logger.error(f"Erro crítico: {str(e)}", exc_info=True)
+            raise
 
+class AgendamentoService:
     @staticmethod
-    def _converter_data(data_str: Optional[str]) -> Optional[date]:
-        """Converte string de data para objeto date."""
-        if not data_str:
-            return None
-            
+    def agendar_consulta(db: Session, dados: dict):
+        """Agendamento com verificação de conflitos e validação temporal rigorosa"""
         try:
-            return datetime.strptime(data_str, '%Y-%m-%d').date()
-        except ValueError as e:
-            logger.error(f"Formato de data inválido: {data_str}")
-            raise ValueError("Data de nascimento inválida. Use o formato YYYY-MM-DD") from e
+            inicio = datetime.fromisoformat(dados['inicio']) if isinstance(dados['inicio'], str) else dados['inicio']
+            
+            # Validação de horário passado
+            if inicio < datetime.now() - timedelta(minutes=5):  # Tolerância de 5 minutos
+                raise ValueError("Não é possível agendar no passado")
+
+            # Verificação otimizada de conflitos
+            conflito = db.query(Agendamento).filter(
+                Agendamento.profissional_id == dados['profissional_id'],
+                Agendamento.inicio == inicio,
+                Agendamento.status == StatusAgendamento.AGENDADO
+            ).first()
+            
+            if conflito:
+                raise ValueError("Horário já ocupado por outro agendamento")
+
+            consulta = Agendamento(
+                paciente_id=dados['paciente_id'],
+                profissional_id=dados['profissional_id'],
+                inicio=inicio,
+                fim=datetime.fromisoformat(dados['fim']) if isinstance(dados['fim'], str) else dados['fim'],
+                status=StatusAgendamento.AGENDADO,
+                tipo_consulta=sanitizar_input(dados.get('tipo_consulta', 'presencial'))
+            )
+
+            db.add(consulta)
+            db.commit()
+            
+            LogAuditoria.registrar(db, "AGENDAMENTO", "SISTEMA", f"Consulta {consulta.id} agendada")
+            return consulta
+
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.error(f"Erro de banco: {str(e)}", exc_info=True)
+            raise ValueError("Falha no agendamento") from e
 
 class ProfissionalService:
     @staticmethod
     def criar_profissional(db: Session, dados: dict):
+        """Cadastro de profissional com segurança reforçada"""
         try:
-            if not validar_cpf(dados.get('cpf', '')):
-                raise ValueError("CPF inválido para profissional!")
-                
-            if len(dados.get('senha', '')) < 8:
-                raise ValueError("Senha deve ter no mínimo 8 caracteres!")
+            if len(dados['senha']) < 12:
+                raise ValueError("Senha deve ter pelo menos 12 caracteres")
                 
             profissional = Profissional(
-                cpf = sanitizar_input(dados['cpf']),
-                nome = sanitizar_input(dados['nome']),
-                especialidade = dados['especialidade'],
-                hash_senha = gerar_hash_senha(dados['senha']),
-                data_cadastro = datetime.now()
+                cpf=re.sub(r'\D', '', dados['cpf']),
+                nome=sanitizar_input(dados['nome']),
+                especialidade=sanitizar_input(dados['especialidade']),
+                hash_senha=gerar_hash_senha(dados['senha'])
             )
             
             db.add(profissional)
             db.commit()
             
-            # Log de criação de profissional
-            log = LogAuditoria(
-                acao=f"CADASTRO_PROFISSIONAL - ID: {profissional.id}",
-                usuario="ADMIN",
-                data_hora=datetime.now()
-            )
-            db.add(log)
-            db.commit()
-            
+            LogAuditoria.registrar(db, "CADASTRO", "ADMIN", f"Profissional {profissional.id} criado")
             return profissional
-            
-        except SQLAlchemyError as e:
-            db.rollback()
-            logger.error(f"Erro profissional: {str(e)}", exc_info=True)
-            raise ValueError(f"Falha no cadastro: {str(e)}") from e
 
-class AgendamentoService:
+        except IntegrityError as e:
+            db.rollback()
+            if "UNIQUE constraint failed" in str(e):
+                raise ValueError("CPF já cadastrado") from e
+            raise
+
+class LogAuditoria:
     @staticmethod
-    def agendar_consulta(db: Session, dados: dict):
-        try:
-            # Converter string para datetime se necessário
-            if isinstance(dados['inicio'], str):
-                dados['inicio'] = datetime.fromisoformat(dados['inicio'])
-            if isinstance(dados['fim'], str):
-                dados['fim'] = datetime.fromisoformat(dados['fim'])
-
-            # Validação de tempo (permite agendamentos passados para testes)
-            if (dados['inicio'] - datetime.now()).total_seconds() < 0:
-                logger.warning("Agendamento no passado permitido para testes")
-
-            # Verificação de conflito otimizada
-            conflito = db.query(Agendamento).filter(
-                Agendamento.profissional_id == dados['profissional_id'],
-                Agendamento.inicio == dados['inicio'],
-                Agendamento.status == StatusAgendamento.AGENDADO
-            ).first()
+    def registrar(db: Session, acao: str, usuario: str, detalhes: str):
+        """Registro de logs com validação de ações permitidas"""
+        acoes_validas = ["CADASTRO", "ATUALIZACAO", "EXCLUSAO", "LOGIN", "AGENDAMENTO"]
+        if acao.split('_')[0] not in acoes_validas:
+            raise ValueError(f"Ação {acao} não permitida")
             
-            if conflito:
-                logger.error(f"Conflito de agendamento: {dados}")
-                raise ValueError("Horário já ocupado")
-
-            # Criação do agendamento
-            consulta = Agendamento(
-                paciente_id=dados['paciente_id'],
-                profissional_id=dados['profissional_id'],
-                inicio=dados['inicio'],
-                fim=dados['fim'],
-                status=StatusAgendamento.AGENDADO,
-                tipo_consulta=dados.get('tipo_consulta', 'presencial')
-            )
-
-            # Commit único para toda a operação
-            db.add(consulta)
-            db.commit()  # Confirma imediatamente
-
-            logger.info(f"Agendamento {consulta.id} criado com sucesso")
-            return consulta
-            
-        except Exception as e:
-            db.rollback()
-            logger.error(f"Falha crítica: {str(e)}", exc_info=True)
-            raise ValueError(f"Erro no agendamento: {str(e)}") from e
+        log = LogAuditoria(
+            acao=acao,
+            usuario=usuario,
+            detalhes=detalhes[:500],  # Limite de caracteres
+            data_hora=datetime.now()
+        )
+        db.add(log)
+        db.commit()

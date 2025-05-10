@@ -60,8 +60,8 @@ class Paciente(Base):
 
     @validates('telefone')
     def valida_telefone(self, key, value):
-        if not re.match(r'^\(\d{2}\)\s?\d{4,5}-?\d{4}$', value):
-            raise ValueError("Telefone inválido. Formato esperado: (XX) XXXXX-XXXX")
+        if not re.match(r'^(\(\d{2}\)\s?)?(\d{4,5}-?\d{4})$', value):
+            raise ValueError("Telefone inválido. Exemplos válidos: (11) 99999-9999 ou 11999999999")
         return value
 
     __table_args__ = (
@@ -134,11 +134,16 @@ class LogAuditoria(Base):
     """Registro de auditoria para ações críticas no sistema."""
     __tablename__ = 'logs_auditoria'
     
-    id = Column(Integer, primary_key=True, index=True)
-    acao = Column(String(100), nullable=False)
+    id = Column(Integer, primary_key=True)
+    acao = Column(String(50), nullable=False)
     data_hora = Column(DateTime, default=datetime.now)
-    usuario = Column(String(100), nullable=False)
-    detalhes = Column(Text)
+    usuario = Column(String(50), nullable=False)
+    detalhes = Column(String(500))
+
+    def __init__(self, acao: str, usuario: str, detalhes: str):
+        self.acao = acao
+        self.usuario = usuario
+        self.detalhes = detalhes
 
     @validates('acao')
     def valida_acao(self, key, value):

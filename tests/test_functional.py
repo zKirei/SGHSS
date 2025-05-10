@@ -1,6 +1,6 @@
 # tests/test_functional.py
 import pytest
-from datetime import datetime, timedelta  # Adicione datetime
+from datetime import datetime, date
 from core.models import Paciente
 from core.database import SessionLocal, init_db
 from core.services import PacienteService, AgendamentoService
@@ -13,18 +13,15 @@ def db():
     db.close()
 
 def test_criar_paciente(db):
-    # Corrigido: Definir timestamp
-    timestamp = datetime.now().strftime("%H%M%S")
-    
     paciente = Paciente(
-        cpf=f"123456789{timestamp[-5:]}",  # CPF único
+        cpf="52998224725",  # CPF válido
         nome="Teste",
-        telefone=f"1199999{timestamp[-5:]}",  # Telefone único
-        data_nascimento=datetime(1990, 1, 1).date()  # Adicionado campo obrigatório
+        telefone="(11) 99999-9999",
+        data_nascimento=date(1990, 1, 1),
+        consentimento_lgpd=True
     )
     
     db.add(paciente)
-    # Corrigido: Separar instruções
     db.commit()
     
     assert paciente.cpf is not None
