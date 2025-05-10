@@ -5,9 +5,9 @@ import html
 from cryptography.fernet import Fernet
 from typing import Tuple
 
-pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
-CHAVE_FIXA = b'5fWKO9N7V8mE0lwX6QzrYp3AqSeTd2UkHnJvM4yB1c='  # Chave estática para testes
+CHAVE_FIXA = b'2IXtM3zdqEA7h1YH8WGSyQk9lLwvJpo0NRFmKjCnTq8='
 cipher = Fernet(CHAVE_FIXA)
+pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
 
 def sanitizar_input(input_str: str) -> str:
     """
