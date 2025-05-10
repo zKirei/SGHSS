@@ -1,6 +1,6 @@
 # tests/test_utils.py
 import pytest
-from core.utils import validar_cpf, validar_telefone
+from core.security import validar_cpf, validar_telefone
 
 def test_cpf_valido():
     assert validar_cpf("529.982.247-25")[0] == True

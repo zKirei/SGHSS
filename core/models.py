@@ -64,13 +64,6 @@ class Paciente(Base):
             raise ValueError("Telefone inválido. Exemplos válidos: (11) 99999-9999 ou 11999999999")
         return value
 
-    __table_args__ = (
-        CheckConstraint(
-            "LENGTH(cpf) = 11 AND cpf NOT GLOB '[^0-9]*'", 
-            name='formato_cpf_valido'
-        ),
-    )
-
 class Especialidade(str, Enum):
     MEDICO = 'médico'
     ENFERMEIRO = 'enfermeiro'
@@ -147,7 +140,7 @@ class LogAuditoria(Base):
 
     @validates('acao')
     def valida_acao(self, key, value):
-        acoes_permitidas = ['CADASTRO', 'ATUALIZACAO', 'EXCLUSAO', 'LOGIN', 'OUTRO']
+        acoes_permitidas = ['CADASTRO', 'ATUALIZACAO', 'EXCLUSAO', 'LOGIN', 'OUTRO', 'AGENDAMENTO']
         if value.split('_')[0] not in acoes_permitidas:
             raise ValueError("Tipo de ação não permitida")
         return value

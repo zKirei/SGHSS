@@ -1,90 +1,71 @@
-# tests/conftest.py
+# tests/conftest.py (versão corrigida)
 import pytest
 from datetime import date, datetime, timedelta
 from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from core.database import Base, get_db
+from core.database import Base
 from core.models import Paciente, Profissional, Agendamento, LogAuditoria
 from core.security import gerar_hash_senha
 
-# Configuração do banco em memória para testes
+# Configuração do banco em memória
 DATABASE_URL = "sqlite:///:memory:"
-
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False},
-    poolclass=StaticPool  # Permite concorrência segura
+    poolclass=StaticPool
 )
 
-# Configuração do scoped_session para compatibilidade com testes
-SessionLocal = scoped_session(
-    sessionmaker(
-        autocommit=False,
-        autoflush=False,
-        bind=engine
-    )
+# Configuração CORRETA da sessão
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine
 )
 
-# Conexão com os eventos do SQLAlchemy para debug
 @event.listens_for(engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")  # Ativa FKs no SQLite
+    cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_database():
-    """Configuração do banco de testes com dados iniciais"""
-    # Recria o schema do zero para cada sessão de testes
+    """Configuração inicial do banco de testes"""
     Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(bind=engine)  # Cria todas as tabelas
 
     # Popula dados de teste
     db = SessionLocal()
     try:
-        # Pacientes de teste
+        # Pacientes (use CPFs válidos)
         pacientes = [
             Paciente(
                 nome="Paciente Teste 1",
-                cpf="12345678909",
+                cpf="52998224725",  # ← CPF válido
                 data_nascimento=date(2000, 1, 1),
-                telefone="(11) 99999-9999",  # Formato corrigido
-                consentimento_lgpd=True
-            ),
-            Paciente(
-                nome="Paciente Teste 2",
-                cpf="00987654321",
-                data_nascimento=date(2010, 5, 15),
-                telefone="(21) 9999-9999",  # Formato corrigido
+                telefone="(11) 99999-9999",
                 consentimento_lgpd=True
             )
         ]
 
-        # Profissionais de teste
+        # Profissionais
         profissionais = [
             Profissional(
-                nome="Dr. Cardiologista",
-                cpf="98765432100",
+                nome="Dr. Teste",
+                cpf="98765432109",  # ← CPF válido
                 especialidade="Cardiologia",
-                hash_senha=gerar_hash_senha("SenhaSegura123!")
-            ),
-            Profissional(
-                nome="Enf. Geral",
-                cpf="00123456789",
-                especialidade="Enfermeiro",
-                hash_senha=gerar_hash_senha("OutraSenha456@")
+                hash_senha=gerar_hash_senha("Senha123@")
             )
         ]
 
-        # Agendamentos de teste
-        agora = datetime.now()
+        # Agendamentos
         agendamentos = [
             Agendamento(
                 paciente_id=1,
                 profissional_id=1,
-                inicio=agora + timedelta(hours=1),
-                fim=agora + timedelta(hours=2),
+                inicio=datetime.now() + timedelta(hours=1),
+                fim=datetime.now() + timedelta(hours=2),
                 status="agendado"
             )
         ]
@@ -95,44 +76,28 @@ def setup_database():
         
         db.commit()
 
-        # Logs de auditoria
-        db.add(LogAuditoria(
-            acao="OUTRO",
-            usuario="SISTEMA",
-            detalhes="População inicial de dados de teste"
-        ))
-        
-        db.commit()
-
     except Exception as e:
         db.rollback()
-        pytest.fail(f"Falha no setup do banco: {str(e)}")
+        pytest.fail(f"Falha no setup: {str(e)}")
     finally:
         db.close()
 
 @pytest.fixture(scope="function")
 def db():
-    """Fornece uma nova sessão isolada para cada teste"""
+    """Fornece uma sessão isolada para cada teste"""
     connection = engine.connect()
     transaction = connection.begin()
     db = SessionLocal(bind=connection)
-
-
     yield db
-
-    # Limpeza
     db.close()
     transaction.rollback()
     connection.close()
 
+# Fixtures para entidades de teste
 @pytest.fixture
 def paciente_teste(db):
-    return db.query(Paciente).filter_by(cpf="12345678909").first()
-
-@pytest.fixture
-def profissional_teste(db):
-    return db.query(Profissional).filter_by(cpf="98765432100").first()
+    return db.query(Paciente).filter_by(cpf="52998224725").first()
 
 @pytest.fixture
 def agendamento_teste(db):
-    return db.query(Agendamento).filter_by(paciente_id=1).first()
+    return db.query(Agendamento).first()

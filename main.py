@@ -32,7 +32,7 @@ def criar_agendamento(dados: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Erro interno")
 
 # --------------------------------------
-# Funções do Menu Interativo
+# Funções do Menu Interativo (ATUALIZADAS)
 # --------------------------------------
 def cadastrar_paciente_manual():
     """Cadastro manual de pacientes via terminal"""
@@ -41,24 +41,38 @@ def cadastrar_paciente_manual():
         timestamp = datetime.now().strftime("%H%M%S")
         telefone = f"11999{timestamp[-6:]}"
 
+        # Validação do CPF (agora retorna Tuple[bool, str])
         cpf = console.input("[bold]CPF (apenas números):[/bold] ")
-        if not validar_cpf(cpf):
-            raise ValueError("CPF inválido.")
+        cpf_valido, msg_cpf = validar_cpf(cpf)
+        if not cpf_valido:
+            raise ValueError(f"CPF inválido: {msg_cpf}")
         
+        # Validação do Nome
         nome = sanitizar_input(console.input("[bold]Nome:[/bold] "))
+        
+        # Validação da Data de Nascimento (NOVO)
         data_nascimento = console.input("[bold]Data de Nascimento (YYYY-MM-DD):[/bold] ")
+        try:
+            # Converte e valida o formato
+            data_nasc = datetime.strptime(data_nascimento, "%Y-%m-%d").date()
+            if data_nasc > datetime.now().date():
+                raise ValueError("Data de nascimento não pode ser futura")
+        except ValueError as e:
+            raise ValueError(f"Data inválida: {str(e)}. Use o formato YYYY-MM-DD")
 
+        # Criação do paciente
         paciente = PacienteService.criar_paciente(
             db,
             {
                 "cpf": cpf,
                 "nome": nome,
                 "telefone": telefone,
-                "data_nascimento": data_nascimento,
+                "data_nascimento": data_nasc.isoformat(),  # Data já validada
                 "consentimento_lgpd": True
             }
         )
         console.print(f"[bold green]Paciente {paciente.nome} cadastrado![/bold green]")
+
     except Exception as e:
         console.print(f"[bold red]Erro: {str(e)}[/bold red]")
     finally:

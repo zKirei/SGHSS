@@ -1,11 +1,9 @@
-# core/services.py (versão corrigida e otimizada)
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from datetime import datetime, date, timedelta
-from .models import Base, Paciente, Agendamento, Profissional, LogAuditoria, StatusAgendamento
-from .security import sanitizar_input, gerar_hash_senha
-from .utils import validar_cpf, validar_telefone
-from typing import Optional
+from .models import Paciente, Agendamento, Profissional, LogAuditoria, StatusAgendamento
+from .security import sanitizar_input, gerar_hash_senha, validar_cpf
+from core.security import validar_cpf, validar_telefone
 import logging
 import re
 
@@ -14,36 +12,40 @@ logger = logging.getLogger(__name__)
 class PacienteService:
     @staticmethod
     def criar_paciente(db: Session, dados: dict):
-        """Cria paciente com validações reforçadas e tratamento de concorrência"""
+        """Cria paciente com validação reforçada do LGPD"""
         try:
-            # Validação estrita do telefone
+            # Validação do consentimento LGPD (NOVA REGRA)
+            if not dados.get('consentimento_lgpd', False):
+                raise ValueError("Consentimento LGPD é obrigatório para cadastro")
+
+            # Validação do telefone
             telefone = dados.get('telefone', '')
             if not re.match(r'^\(\d{2}\)\s?\d{4,5}-?\d{4}$', telefone):
                 raise ValueError("Telefone inválido. Formato: (XX) XXXXX-XXXX")
 
-            # Restante das validações
-            if not validar_cpf(dados['cpf']):
-                raise ValueError("CPF inválido")
-                
+            # Validação do CPF
+            cpf_valido, msg = validar_cpf(dados['cpf'])
+            if not cpf_valido:
+                raise ValueError(f"CPF inválido: {msg}")
+
+            # Validação da data de nascimento
             data_nascimento = datetime.strptime(dados['data_nascimento'], '%Y-%m-%d').date()
             if data_nascimento > date.today():
                 raise ValueError("Data de nascimento futura")
 
-            # Sanitização completa
+            # Criação do paciente
             paciente = Paciente(
-                cpf=re.sub(r'\D', '', dados['cpf']),  # Remove caracteres não numéricos
+                cpf=re.sub(r'\D', '', dados['cpf']),
                 nome=sanitizar_input(dados['nome']),
                 telefone=telefone,
                 data_nascimento=data_nascimento,
-                consentimento_lgpd=dados['consentimento_lgpd']
+                consentimento_lgpd=dados['consentimento_lgpd']  # Já validado acima
             )
 
             db.add(paciente)
             db.commit()
             
-            # Auditoria
-            LogAuditoria.registrar(db, "CADASTRO", "SISTEMA", f"Paciente {paciente.id} criado")
-            
+            LogAuditoria.registrar(db, "CADASTRO_PACIENTE", "SISTEMA", f"Paciente {paciente.id} criado")
             return paciente
 
         except IntegrityError as e:

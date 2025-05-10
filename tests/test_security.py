@@ -37,10 +37,10 @@ class TestSecurity:
                 db.close()
         
         with ThreadPoolExecutor(max_workers=10) as executor:
-            cpf_base = "5299822472"
+            cpf_base = "52998224725"
             results = list(executor.map(
                 criar_paciente, 
-                [f"{cpf_base[:-2]}{i:02d}" for i in range(20)]
+             cpfs = [f"{cpf_base[:-2]}{i:02d}" for i in range(20)]
             ))
         
         assert sum(results) == 1, "Apenas 1 deve ser unico"
