@@ -1,6 +1,6 @@
 from locust import HttpUser, task, between
 from core.models import Agendamento
-from core.database import SessionLocal
+from core.database import SessionLocal, init_db
 import logging
 
 logger = logging.getLogger("test_carga")
@@ -25,6 +25,7 @@ class CargaUser(HttpUser):
                 logger.error(f"Falha: {response.status_code} - {response.text}")
 
 def test_verificar_agendamentos():
+    init_db()
     db = SessionLocal()
     try:
         total = db.query(Agendamento).count()

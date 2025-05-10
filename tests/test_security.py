@@ -1,5 +1,7 @@
 import pytest
 import time
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 from core.security import sanitizar_input
 from core.services import PacienteService
 from core.database import SessionLocal
@@ -41,7 +43,9 @@ class TestSecurity:
 
         def criar_paciente(cpf: str):
             """Tenta criar um paciente com CPF único"""
-            db = SessionLocal()
+            engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+            Session = sessionmaker(bind=engine)
+            db = Session()
             try:
                 PacienteService.criar_paciente(db, {
                     "cpf": cpf,
