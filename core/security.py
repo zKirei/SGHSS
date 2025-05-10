@@ -17,26 +17,24 @@ def sanitizar_input(input_str: str) -> str:
     if not input_str:
         return ''
     
-    # Remove todas as tags HTML e substitui por espaço
-    sem_tags = re.sub(r'<[^>]*>', ' ', input_str)
+    # Remove tags HTML e substitui por espaço
+    sem_tags = re.sub(r'<[^>]+>', ' ', input_str)
     
     # Escapa caracteres HTML (ex: < → &lt;)
     escapado = html.escape(sem_tags)
     
-    # Substitui padrões maliciosos
+    # Padrões de substituição
     padroes = [
-        (r'\b(DROP|DELETE|INSERT|ALTER|EXEC)\b', '', re.IGNORECASE),  # Remove comandos SQL
-        (r';|--|#|\/\*|\*\/|\\', ' '),  # Substitui caracteres de injeção
-        (r"'", "&#39;"),  # Escapa apóstrofos usando entidade numérica
-        (r'(javascript|vbscript|data):', '', re.IGNORECASE),  # Remove protocolos perigosos
+        (r'\b(DROP|DELETE|INSERT|ALTER|EXEC|OR)\b', '', re.IGNORECASE),  # Remove comandos SQL
+        (r';|--|#|\/\*|\*\/|\\', ' '),  # Remove caracteres de injeção
+        (r"'", ""),  # Remove apóstrofos (substitui por vazio)
+        (r'(javascript|vbscript|data):', '', re.IGNORECASE),
     ]
     
-    # Aplica cada substituição
     for pattern, repl, *flags in padroes:
         flag = flags[0] if flags else 0
         escapado = re.sub(pattern, repl, escapado, flags=flag)
     
-    # Remove espaços extras e limita o tamanho
     return ' '.join(escapado.split()).strip()[:500]
 
 # ----------------------------------------------

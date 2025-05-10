@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from core.database import Base
-from core.models import Paciente, Profissional, Agendamento, LogAuditoria
+from core.models import Paciente, Profissional, Agendamento
 from core.security import gerar_hash_senha
 
 # Configuração do banco em memória

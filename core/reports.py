@@ -2,7 +2,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import extract
 from .models import Agendamento, StatusAgendamento, Paciente
 import csv
-from datetime import datetime
 
 def gerar_relatorio_pacientes(db: Session, arquivo_csv: str):
     pacientes = db.query(Paciente).all()

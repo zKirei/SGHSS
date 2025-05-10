@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Date, Text, DateTime, ForeignKey, Boolean, CheckConstraint
+from sqlalchemy import Column, Integer, String, Date, Text, DateTime, ForeignKey, Boolean
 from sqlalchemy.orm import relationship, declarative_base, validates
 from sqlalchemy import Enum as SQLAlchemyEnum
 from datetime import datetime, date
@@ -132,11 +132,6 @@ class LogAuditoria(Base):
     data_hora = Column(DateTime, default=datetime.now)
     usuario = Column(String(50), nullable=False)
     detalhes = Column(String(500))
-
-    def __init__(self, acao: str, usuario: str, detalhes: str):
-        self.acao = acao
-        self.usuario = usuario
-        self.detalhes = detalhes
 
     @validates('acao')
     def valida_acao(self, key, value):
