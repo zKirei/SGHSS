@@ -50,3 +50,18 @@ def test_agendamento_passado(db):
             "inicio": datetime(2020, 1, 1, 10, 0),  # Objeto datetime
             "fim": datetime(2020, 1, 1, 11, 0)      # Objeto datetime
         })
+
+@pytest.mark.parametrize("data,esperado", [
+    ("2000-02-30", ValueError),  # Data inválida
+    ("3000-01-01", ValueError),  # Data futura
+    ("1990-13-01", ValueError)   # Mês inválido
+])
+def test_datas_invalidas(db, data, esperado):
+    with pytest.raises(esperado):
+        PacienteService.criar_paciente(db, {
+            "cpf": "12345678909",
+            "nome": "Teste Data",
+            "telefone": "11999999999",
+            "data_nascimento": data,
+            "consentimento_lgpd": True
+        })

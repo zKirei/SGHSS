@@ -21,13 +21,8 @@ class Paciente(Base):
 
     @validates('data_nascimento')
     def valida_data_nascimento(self, key, value):
-        """Converte strings no formato 'YYYY-MM-DD' para objetos date."""
-        if isinstance(value, str):
-            return date.fromisoformat(value)  # Converte string para date
-        elif isinstance(value, date):
-            return value
-        else:
-            raise ValueError("Formato de data inválido. Use 'YYYY-MM-DD'.")
+        if isinstance(value, date) and value > date.today():
+            raise ValueError("Data de nascimento não pode ser futura")
 
 class Especialidade(str, Enum):  # Herda de str para compatibilidade
     MEDICO = 'médico'

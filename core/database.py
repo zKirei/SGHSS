@@ -1,18 +1,33 @@
 # core/database.py
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
-from .models import Base  # Importe Base dos modelos
+from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.pool import StaticPool
+from .models import Base  # Importação correta da Base
 
-DATABASE_URL = "sqlite:///./sgss.db"
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# Configuração do banco de dados em memória para testes
+DATABASE_URL = "sqlite:///:memory:"
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool  # Permite acesso concorrente seguro
+)
+
+SessionLocal = scoped_session(sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine
+))
 
 def init_db():
-    Base.metadata.create_all(bind=engine)  # Cria todas as tabelas
+    """Função para inicializar o banco de dados"""
+    Base.metadata.create_all(bind=engine)
 
-# Adicione esta função ↓
 def get_db():
+    """
+    Fornece uma instância de banco de dados para cada requisição
+    Fechamento automático após o uso
+    """
     db = SessionLocal()
     try:
         yield db

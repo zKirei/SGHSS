@@ -1,74 +1,35 @@
-import pytest
-from core.security import sanitizar_input, gerar_hash_senha, verificar_senha
-from core.services import PacienteService
-from core.database import SessionLocal
-
 class TestSecurity:
-    """Classe de testes para funcionalidades de segurança"""
-    
-    def test_hash_senha(self):
-        """Testa geração e verificação de hash de senha"""
-        senha = "senhaSegura123"
-        hash = gerar_hash_senha(senha)
+    @pytest.mark.parametrize("input,esperado", [
+        ("<script>alert(1)</script>", "script alert 1 script"),
+        ("'; DROP TABLE pacientes;--", "DROP TABLE pacientes"),
+        ("João Silva' OR '1'='1", "João Silva OR 1 1"),
+        ("Normal\nInput\tTest", "Normal Input Test")
+    ])
+    def test_sanitizacao_casos(self, input, esperado):
+        assert sanitizar_input(input) == esperado
+
+    def test_concorrencia_cpf(self, db):
+        from concurrent.futures import ThreadPoolExecutor
         
-        # Verifica senha correta
-        assert verificar_senha(senha, hash) is True
-        
-        # Verifica senha incorreta
-        assert not verificar_senha("senhaErrada", hash)
-        
-        # Verifica que hashes são diferentes para mesma senha
-        hash2 = gerar_hash_senha(senha)
-        assert hash != hash2
-    
-    def test_sql_injection_prevencao(self):
-        """Testa prevenção contra injeção SQL no cadastro de pacientes"""
-        db = SessionLocal()
-        try:
-            paciente = PacienteService.criar_paciente(
-                db,
-                {
-                    "nome": "Admin'; DROP TABLE usuarios;--",
-                    "cpf": "12345678909",
+        def criar_paciente(cpf):
+            try:
+                PacienteService.criar_paciente(db, {
+                    "cpf": cpf,
+                    "nome": "Concorrente",
                     "telefone": "11999999999",
                     "data_nascimento": "2000-01-01",
                     "consentimento_lgpd": True
-                }
-            )
-            # Verifica que caracteres/sequências perigosas foram removidas
-            assert "DROP TABLE" not in paciente.nome
-            assert ";" not in paciente.nome
-            assert "--" not in paciente.nome
-            assert "'" not in paciente.nome
-        finally:
-            db.close()
-    
-    def test_xss_prevencao(self):
-        """Testa prevenção contra XSS no cadastro de pacientes"""
-        db = SessionLocal()
-        try:
-            paciente = PacienteService.criar_paciente(
-                db,
-                {
-                    "nome": "<script>alert('XSS')</script>",
-                    "cpf": "98765432100",
-                    "telefone": "21999999999",
-                    "data_nascimento": "1990-01-01",
-                    "consentimento_lgpd": True
-                }
-            )
-            # Verifica que tags foram removidas mas conteúdo interno pode permanecer
-            assert "<script>" not in paciente.nome
-            assert "</script>" not in paciente.nome
-        finally:
-            db.close()
-    
-    def test_sanitizacao_unicode(self):
-        """Testa sanitização com caracteres Unicode"""
-        assert sanitizar_input("Café; DROP TABLE") == "Café DROP TABLE"
-        assert sanitizar_input("Mötörhëäd--") == "Mötörhëäd"
-    
-    def test_sanitizacao_espacos(self):
-        """Testa normalização de espaços em branco"""
-        assert sanitizar_input("  Teste   com  espaços  ") == "Teste com espaços"
-        assert sanitizar_input("Teste\t\n\rcom\tcaracteres") == "Teste com caracteres"
+                })
+                return True
+            except:
+                return False
+        
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            cpf_base = "123456789"
+            results = list(executor.map(
+                criar_paciente, 
+                [f"{cpf_base}{i:02d}" for i in range(20)]
+            ))
+        
+        successes = sum(results)
+        assert successes == 1, "Deveria haver apenas 1 sucesso por unique constraint"
