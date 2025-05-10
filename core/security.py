@@ -16,16 +16,27 @@ pwd_context = CryptContext(schemes=['bcrypt', 'sha256_crypt'], deprecated='auto'
 def sanitizar_input(input_str: str) -> str:
     if not input_str:
         return ''
-    sem_tags = re.sub(r'<\/?[^>]+>', ' ', input_str)
+    
+    # Remove tags HTML e conteúdo entre elas
+    sem_tags = re.sub(r'<[^>]*>', ' ', input_str)
+    
+    # Escapa caracteres HTML especiais (ex: < → &lt;)
     escapado = html.escape(html.unescape(sem_tags))
+    
+    # Lista de padrões para substituição (regex, substituição, flags)
     padroes = [
         (r'\b(DROP|DELETE|INSERT|ALTER|EXEC)\b', '', re.IGNORECASE),
         (r';|--|#|\/\*|\*\/|\\', ' '),
         (r"'", ''),
         (r'(javascript|vbscript|data):', '', re.IGNORECASE),
     ]
-    for pattern, repl in padroes:
-        escapado = re.sub(pattern, repl, escapado, flags=re.IGNORECASE)
+    
+    # Aplica cada substituição
+    for pattern, repl, *flags in padroes:
+        flag = flags[0] if flags else 0
+        escapado = re.sub(pattern, repl, escapado, flags=flag)
+    
+    # Remove espaços extras e limita o tamanho
     return ' '.join(escapado.split()).strip()[:500]
 
 # ----------------------------------------------

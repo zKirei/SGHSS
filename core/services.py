@@ -2,8 +2,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from datetime import datetime, date, timedelta
 from .models import Paciente, Agendamento, Profissional, LogAuditoria, StatusAgendamento
-from .security import sanitizar_input, gerar_hash_senha, validar_cpf
-from core.security import validar_cpf, validar_telefone
+from .security import sanitizar_input, gerar_hash_senha, validar_cpf, validar_telefone
 import logging
 import re
 
@@ -12,21 +11,22 @@ logger = logging.getLogger(__name__)
 class PacienteService:
     @staticmethod
     def criar_paciente(db: Session, dados: dict):
-        """Cria paciente com validação reforçada do LGPD"""
+        """Cria paciente com validação reforçada do LGPD e dados sensíveis."""
         try:
-            # Validação do consentimento LGPD (NOVA REGRA)
+            # Validação do consentimento LGPD
             if not dados.get('consentimento_lgpd', False):
                 raise ValueError("Consentimento LGPD é obrigatório para cadastro")
 
-            # Validação do telefone
+            # Validação e sanitização do telefone
             telefone = dados.get('telefone', '')
-            if not re.match(r'^\(\d{2}\)\s?\d{4,5}-?\d{4}$', telefone):
-                raise ValueError("Telefone inválido. Formato: (XX) XXXXX-XXXX")
+            telefone_valido, msg_telefone = validar_telefone(telefone)
+            if not telefone_valido:
+                raise ValueError(f"Telefone inválido: {msg_telefone}")
 
             # Validação do CPF
-            cpf_valido, msg = validar_cpf(dados['cpf'])
+            cpf_valido, msg_cpf = validar_cpf(dados['cpf'])
             if not cpf_valido:
-                raise ValueError(f"CPF inválido: {msg}")
+                raise ValueError(f"CPF inválido: {msg_cpf}")
 
             # Validação da data de nascimento
             data_nascimento = datetime.strptime(dados['data_nascimento'], '%Y-%m-%d').date()
@@ -35,11 +35,11 @@ class PacienteService:
 
             # Criação do paciente
             paciente = Paciente(
-                cpf=re.sub(r'\D', '', dados['cpf']),
+                cpf=re.sub(r'\D', '', dados['cpf']),  # Remove caracteres não numéricos
                 nome=sanitizar_input(dados['nome']),
                 telefone=telefone,
                 data_nascimento=data_nascimento,
-                consentimento_lgpd=dados['consentimento_lgpd']  # Já validado acima
+                consentimento_lgpd=True
             )
 
             db.add(paciente)
@@ -62,15 +62,19 @@ class PacienteService:
 class AgendamentoService:
     @staticmethod
     def agendar_consulta(db: Session, dados: dict):
-        """Agendamento com verificação de conflitos e validação temporal rigorosa"""
+        """Agendamento com verificação de conflitos e validação temporal rigorosa."""
         try:
-            inicio = datetime.fromisoformat(dados['inicio']) if isinstance(dados['inicio'], str) else dados['inicio']
+            # Conversão e validação de horário
+            inicio = (
+                datetime.fromisoformat(dados['inicio'])
+                if isinstance(dados['inicio'], str)
+                else dados['inicio']
+            )
             
-            # Validação de horário passado
-            if inicio < datetime.now() - timedelta(minutes=5):  # Tolerância de 5 minutos
+            if inicio < datetime.now() - timedelta(minutes=5):
                 raise ValueError("Não é possível agendar no passado")
 
-            # Verificação otimizada de conflitos
+            # Verificação de conflitos
             conflito = db.query(Agendamento).filter(
                 Agendamento.profissional_id == dados['profissional_id'],
                 Agendamento.inicio == inicio,
@@ -80,6 +84,7 @@ class AgendamentoService:
             if conflito:
                 raise ValueError("Horário já ocupado por outro agendamento")
 
+            # Criação do agendamento
             consulta = Agendamento(
                 paciente_id=dados['paciente_id'],
                 profissional_id=dados['profissional_id'],
@@ -103,8 +108,9 @@ class AgendamentoService:
 class ProfissionalService:
     @staticmethod
     def criar_profissional(db: Session, dados: dict):
-        """Cadastro de profissional com segurança reforçada"""
+        """Cadastro de profissional com segurança reforçada."""
         try:
+            # Validação de senha
             if len(dados['senha']) < 12:
                 raise ValueError("Senha deve ter pelo menos 12 caracteres")
                 
@@ -118,7 +124,7 @@ class ProfissionalService:
             db.add(profissional)
             db.commit()
             
-            LogAuditoria.registrar(db, "CADASTRO", "ADMIN", f"Profissional {profissional.id} criado")
+            LogAuditoria.registrar(db, "CADASTRO_PROFISSIONAL", "ADMIN", f"Profissional {profissional.id} criado")
             return profissional
 
         except IntegrityError as e:
@@ -130,10 +136,12 @@ class ProfissionalService:
 class LogAuditoria:
     @staticmethod
     def registrar(db: Session, acao: str, usuario: str, detalhes: str):
-        """Registro de logs com validação de ações permitidas"""
+        """Registro de logs com validação de ações permitidas."""
         acoes_validas = ["CADASTRO", "ATUALIZACAO", "EXCLUSAO", "LOGIN", "AGENDAMENTO"]
-        if acao.split('_')[0] not in acoes_validas:
-            raise ValueError(f"Ação {acao} não permitida")
+        acao_base = acao.split('_')[0]
+        
+        if acao_base not in acoes_validas:
+            raise ValueError(f"Ação '{acao}' não permitida")
             
         log = LogAuditoria(
             acao=acao,
