@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from datetime import datetime, date, timedelta
-from .models import Paciente, Agendamento, Profissional, LogAuditoria, StatusAgendamento
+from .models import Paciente, Agendamento, Profissional, LogAuditoria, StatusAgendamento  # Importação correta do LogAuditoria
 from .security import sanitizar_input, gerar_hash_senha, validar_cpf, validar_telefone
 import logging
 import re
@@ -45,7 +45,15 @@ class PacienteService:
             db.add(paciente)
             db.commit()
             
-            LogAuditoria.registrar(db, "CADASTRO_PACIENTE", "SISTEMA", f"Paciente {paciente.id} criado")
+            # Registro do log usando o modelo SQLAlchemy diretamente
+            log = LogAuditoria(
+                acao="CADASTRO_PACIENTE",
+                usuario="SISTEMA",
+                detalhes=f"Paciente {paciente.id} criado"
+            )
+            db.add(log)
+            db.commit()  # Commit após adicionar o log
+            
             return paciente
 
         except IntegrityError as e:
