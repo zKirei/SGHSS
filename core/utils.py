@@ -1,5 +1,6 @@
 # core/utils.py
 import re
+from .security import validar_cpf
 
 def formatar_cpf(cpf: str) -> str:
     """Formata CPF no padrão XXX.XXX.XXX-XX"""
@@ -14,3 +15,8 @@ def formatar_telefone(telefone: str) -> str:
     if len(nums) == 10:
         return f"({nums[:2]}) {nums[2:6]}-{nums[6:]}"
     return telefone
+
+def test_cpf_invalido_especifico():
+    cpf = "12345678909"
+    valido, msg = validar_cpf(cpf)
+    assert not valido, f"CPF {cpf} é inválido. Motivo: {msg}"

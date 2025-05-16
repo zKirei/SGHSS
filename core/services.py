@@ -24,7 +24,8 @@ class PacienteService:
                 raise ValueError(f"Telefone inválido: {msg_telefone}")
 
             # Validação do CPF
-            cpf_valido, msg_cpf = validar_cpf(dados['cpf'])
+            cpf_sanitizado = re.sub(r'\D', '', dados['cpf'])  # Remove não numéricos
+            cpf_valido, msg_cpf = validar_cpf(cpf_sanitizado)
             if not cpf_valido:
                 raise ValueError(f"CPF inválido: {msg_cpf}")
 

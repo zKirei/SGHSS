@@ -81,10 +81,10 @@ def test_sql_injection_paciente(db):
     from core.services import PacienteService
     with pytest.raises(ValueError) as exc_info:
         PacienteService.criar_paciente(db, {
-            "cpf": "12345678909'; DROP TABLE pacientes;--",
+            "cpf": "00000000000'; DROP TABLE pacientes;--",  # CPF inválido (dígitos repetidos)
             "nome": "Teste'; DELETE FROM pacientes;--",
             "telefone": "11999999999", 
             "data_nascimento": "2000-01-01",
             "consentimento_lgpd": True
         })
-    assert "inválido" in str(exc_info.value).lower()
+    assert "CPF inválido" in str(exc_info.value)

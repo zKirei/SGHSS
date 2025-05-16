@@ -29,36 +29,27 @@ def sanitizar_input(input_str: str) -> str:
 # Validação de CPF
 # ----------------------------------------------
 def validar_cpf(cpf: str) -> Tuple[bool, str]:
-    """
-    Validação rigorosa de CPF com retorno detalhado.
-    - Verifica formato, dígitos repetidos e cálculo matemático.
-    - Aceita CPFs formatados ou não.
-    """
     cpf_limpo = re.sub(r'\D', '', cpf)
     
     # Verificação básica
     if len(cpf_limpo) != 11:
         return (False, "CPF deve conter 11 dígitos")
-        
     if cpf_limpo == cpf_limpo[0] * 11:
         return (False, "CPF inválido (dígitos repetidos)")
     
-    # Conversão para inteiros
-    try:
-        numeros = [int(digito) for digito in cpf_limpo]
-    except ValueError:
-        return (False, "CPF contém caracteres inválidos")
-
     # Cálculo dos dígitos verificadores
+    numeros = [int(digito) for digito in cpf_limpo]
+    
+    # Primeiro dígito
     soma = sum(numeros[i] * (10 - i) for i in range(9))
     d1 = (soma * 10) % 11
     d1 = d1 if d1 < 10 else 0
     
+    # Segundo dígito
     soma = sum(numeros[i] * (11 - i) for i in range(10))
     d2 = (soma * 10) % 11
     d2 = d2 if d2 < 10 else 0
-
-    # Validação final
+    
     if numeros[9] != d1 or numeros[10] != d2:
         return (False, "Dígitos verificadores inválidos")
     
