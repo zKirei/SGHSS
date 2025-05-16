@@ -15,18 +15,14 @@ pwd_context = CryptContext(schemes=['bcrypt', 'sha256_crypt'], deprecated='auto'
 # ----------------------------------------------
 
 def sanitizar_input(input_str: str) -> str:
-    # Remove tags HTML
     cleaned = bleach.clean(input_str, tags=[], attributes={}, strip=True)
-    
-    # Remove comandos SQL e caracteres perigosos
+    # Regex ajustada: remove comandos SQL e caracteres perigosos
     cleaned = re.sub(
-        r'\b(DROP|DELETE|INSERT|ALTER|EXEC|OR|SELECT|UPDATE)\b|[;\'"()=#-]',
+        r'(;|\b(DROP|DELETE|INSERT|ALTER|EXEC|OR|SELECT|UPDATE)\b|[\'\"()=#-])',
         '', 
         cleaned,
         flags=re.IGNORECASE
     )
-    
-    # Normaliza espaços
     return re.sub(r'\s+', ' ', cleaned).strip()[:500]
 
 # ----------------------------------------------

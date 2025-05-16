@@ -115,11 +115,10 @@ class LogAuditoria(Base):
     def __init__(self, acao: str, usuario: str, detalhes: str):
         self.acao = acao
         self.usuario = usuario
-        self.detalhes = detalhes[:500]
+        self.detalhes = detalhes[:500]  # Limita a 500 caracteres
 
     # Método de registro simplificado
     @classmethod
     def registrar(cls, db: Session, acao: str, usuario: str, detalhes: str):
         log = cls(acao=acao, usuario=usuario, detalhes=detalhes)
         db.add(log)
-        db.commit()

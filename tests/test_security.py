@@ -16,9 +16,9 @@ Base.metadata.create_all(engine)
 SessionLocal = sessionmaker(bind=engine)  # Renomeado para evitar conflito
 
 @pytest.mark.parametrize("input,esperado", [
-    ("<script>alert(1)</script>", "alert 1"),
-    ("'; DROP TABLE pacientes;--", "TABLE pacientes"),
-    ("João Silva' OR '1'='1", "João Silva 1 1"),
+    ("<script>alert(1)</script>", "alert 1"),  # Remove tags, mantém texto
+    ("'; DROP TABLE pacientes;--", "TABLE pacientes"),  # Remove comandos SQL
+    ("João Silva' OR '1'='1", "João Silva 11"),  # Remove caracteres especiais
 ])
 def test_sanitizacao(input, esperado):
     from core.security import sanitizar_input

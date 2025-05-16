@@ -87,7 +87,6 @@ def db():
     connection = engine.connect()
     transaction = connection.begin()
     session = SessionLocal(bind=connection)
-    
     try:
         yield session
     finally:

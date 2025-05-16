@@ -142,4 +142,3 @@ class LogAuditoria:
             detalhes=detalhes
         )
         db.add(log)
-        db.commit()
