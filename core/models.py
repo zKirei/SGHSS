@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Date, Text, DateTime, ForeignKey, Boolean
-from sqlalchemy.orm import relationship, declarative_base, validates
+from sqlalchemy.orm import relationship, declarative_base, validates, Session
 from sqlalchemy import Enum as SQLAlchemyEnum
 from datetime import datetime, date
 from enum import Enum
@@ -8,28 +8,6 @@ import re
 Base = declarative_base()
 
 class Paciente(Base):
-    """Modelo de paciente com validações integradas para dados clínicos.
-    
-    Attributes:
-        id: Chave primária automática
-        nome: Nome completo (100 caracteres, obrigatório)
-        cpf: CPF único (11 dígitos, validado)
-        data_nascimento: Data no passado (obrigatório)
-        telefone: Número com DDD (15 dígitos, validado)
-        historico_clinico: Texto livre opcional
-        alergias: Texto livre opcional
-        consentimento_lgpd: Booleano obrigatório
-        data_cadastro: Timestamp automático
-    
-    Example:
-        Paciente(
-            nome="João Silva",
-            cpf="12345678909",
-            data_nascimento="2000-01-01",
-            telefone="11999999999",
-            consentimento_lgpd=True
-        )
-    """
     __tablename__ = 'pacientes'
     
     id = Column(Integer, primary_key=True, index=True)
@@ -58,11 +36,12 @@ class Paciente(Base):
             
         return value
 
-    @validates('telefone')
-    def valida_telefone(self, key, value):
-        if not re.match(r'^(\(\d{2}\)\s?)?(\d{4,5}-?\d{4})$', value):
-            raise ValueError("Telefone inválido. Exemplos válidos: (11) 99999-9999 ou 11999999999")
-        return value
+@validates('telefone')
+def valida_telefone(self, key, value):
+    # Aceita (11) 99999-9999, 11999999999, 1199999999 (8 ou 9 dígitos)
+    if not re.match(r'^(\(\d{2}\)\s?)?(9?\d{4}-?\d{4})$', value):
+        raise ValueError("Telefone inválido. Exemplos: (11) 99999-9999 ou 11999999999")
+    return value
 
 class Especialidade(str, Enum):
     MEDICO = 'médico'
@@ -124,7 +103,6 @@ class Agendamento(Base):
         return value
 
 class LogAuditoria(Base):
-    """Registro de auditoria para ações críticas no sistema."""
     __tablename__ = 'logs_auditoria'
     
     id = Column(Integer, primary_key=True)
@@ -133,9 +111,15 @@ class LogAuditoria(Base):
     usuario = Column(String(50), nullable=False)
     detalhes = Column(String(500))
 
-    @validates('acao')
-    def valida_acao(self, key, value):
-        acoes_permitidas = ['CADASTRO', 'ATUALIZACAO', 'EXCLUSAO', 'LOGIN', 'OUTRO', 'AGENDAMENTO']
-        if value.split('_')[0] not in acoes_permitidas:
-            raise ValueError("Tipo de ação não permitida")
-        return value
+    # Construtor explícito (obrigatório)
+    def __init__(self, acao: str, usuario: str, detalhes: str):
+        self.acao = acao
+        self.usuario = usuario
+        self.detalhes = detalhes[:500]
+
+    # Método de registro simplificado
+    @classmethod
+    def registrar(cls, db: Session, acao: str, usuario: str, detalhes: str):
+        log = cls(acao=acao, usuario=usuario, detalhes=detalhes)
+        db.add(log)
+        db.commit()

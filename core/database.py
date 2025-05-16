@@ -1,6 +1,6 @@
 # core/database.py
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from .models import Base  # Importação correta da Base
 
@@ -13,11 +13,11 @@ engine = create_engine(
     poolclass=StaticPool  # Permite acesso concorrente seguro
 )
 
-SessionLocal = scoped_session(sessionmaker(
+SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
     bind=engine
-))
+)
 
 def init_db():
     """Função para inicializar o banco de dados"""

@@ -1,80 +1,90 @@
+# tests/test_security.py (versão corrigida)
 import pytest
-import time
+import random
+from datetime import date
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-from core.security import sanitizar_input
-from core.services import PacienteService
-from core.database import Base
 from concurrent.futures import ThreadPoolExecutor
+from core.models import Paciente
+from core.database import Base, SessionLocal
+from sqlalchemy.exc import IntegrityError
 
-class TestSecurity:
-    """Classe de testes para funcionalidades de segurança"""
+# Configuração ÚNICA do banco (compartilhado entre threads)
+TEST_DB_URL = "sqlite:///test_concorrencia.db"
+engine = create_engine(TEST_DB_URL, connect_args={"check_same_thread": False})
+Base.metadata.create_all(engine)
+SessionLocal = sessionmaker(bind=engine)  # Renomeado para evitar conflito
 
-    # ------------------------------------------
-    # Testes de Sanitização
-    # ------------------------------------------
-    @pytest.mark.parametrize("input,esperado", [
-        ("<script>alert(1)</script>", "alert 1"),  # Tags e parênteses removidos
-        ("'; DROP TABLE pacientes;--", "TABLE pacientes"),  # Comandos SQL removidos
-        ("João Silva' OR '1'='1", "João Silva 1 1"),  # Apóstrofos e OR removidos
-    ])
-    def test_sanitizacao_casos(self, input, esperado):
-        assert sanitizar_input(input) == esperado
+@pytest.mark.parametrize("input,esperado", [
+    ("<script>alert(1)</script>", "alert 1"),
+    ("'; DROP TABLE pacientes;--", "TABLE pacientes"),
+    ("João Silva' OR '1'='1", "João Silva 1 1"),
+])
+def test_sanitizacao(input, esperado):
+    from core.security import sanitizar_input
+    assert sanitizar_input(input) == esperado
 
-    # ------------------------------------------
-    # Testes de Concorrência com CPFs Válidos
-    # ------------------------------------------
-    def test_concorrencia_cpf(self):
-        """Verifica inserções concorrentes de CPFs válidos e únicos"""
+def test_concorrencia_cpf():
+    """Testa inserções concorrentes com CPFs únicos e válidos"""
+    
+    def gerar_cpf_unico() -> str:
+        cpf = [random.randint(0, 9) for _ in range(9)]
+    
+        # Calcula primeiro dígito
+        soma = sum(x * (10 - i) for i, x in enumerate(cpf))
+        d1 = 11 - (soma % 11)
+        cpf.append(d1 if d1 < 10 else 0)
+    
+        # Calcula segundo dígito
+        soma = sum(x * (11 - i) for i, x in enumerate(cpf))
+        d2 = 11 - (soma % 11)
+        cpf.append(d2 if d2 < 10 else 0)
+    
+        return ''.join(map(str, cpf))
+    
+    cpfs = [gerar_cpf_unico() for _ in range(50)]
 
-        def gerar_cpf_valido(base: int) -> str:
-            """Gera CPFs válidos para testes."""
-            cpf_base = f"{base:09d}"  # 9 dígitos
-            # Cálculo do primeiro dígito verificador
-            soma = sum(int(cpf_base[i]) * (10 - i) for i in range(9))
-            d1 = (soma * 10) % 11
-            d1 = d1 if d1 < 10 else 0
-            # Cálculo do segundo dígito verificador
-            soma = sum(int(cpf_base[i]) * (11 - i) for i in range(9)) + d1 * 2
-            d2 = (soma * 10) % 11
-            d2 = d2 if d2 < 10 else 0
-            return f"{cpf_base}{d1}{d2}"
-
-        def criar_paciente(cpf: str):
-            """Tenta criar um paciente com CPF único"""
-            engine = create_engine(
-                "sqlite:///:memory:",
-                connect_args={"check_same_thread": False},
-                poolclass=StaticPool
-            )
-            Base.metadata.create_all(bind=engine)  # Crie tabelas
-            Session = sessionmaker(bind=engine)
-            db = Session()
-            
-            try:
-                PacienteService.criar_paciente(db, {
-                    "cpf": cpf,
-                    "nome": "Concorrente",
-                    "telefone": "(11) 99999-9999",  # Telefone válido
-                    "data_nascimento": "2000-01-01",
-                    "consentimento_lgpd": True
-                })
-                db.commit()
-                return True
-            except Exception as e:
-                db.rollback()
+    def inserir_paciente(cpf: str):
+        """Tenta inserir um paciente com controle transacional"""
+        db = SessionLocal()
+        try:
+            # Verifica se o CPF já existe
+            if db.query(Paciente).filter_by(cpf=cpf).first():
                 return False
-            finally:
-                db.close()
+            
+            novo_paciente = Paciente(
+                cpf=cpf,
+                nome="Concorrente Teste",
+                telefone="11999999999",
+                data_nascimento=date(2000, 1, 1),
+                consentimento_lgpd=True
+            )
+            db.add(novo_paciente)
+            db.commit()
+            return True
+        except IntegrityError:
+            db.rollback()
+            return False
+        finally:
+            db.close()
 
-        # Gera 20 CPFs válidos únicos usando timestamp
-        timestamp = int(time.time() * 1000) % 10**9  # 9 dígitos
-        cpfs = [gerar_cpf_valido(timestamp + i) for i in range(20)]
+    # Executa com 10 workers
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        results = list(executor.map(inserir_paciente, cpfs))
 
-        # Executa em paralelo
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            results = list(executor.map(criar_paciente, cpfs))
+    sucessos = sum(results)
+    assert sucessos == 50, f"Sucessos: {sucessos}/50"
 
-        # Verificação
-        assert sum(results) == 20, "Todos os CPFs válidos devem ser inseridos"
+
+def test_sql_injection_paciente(db):
+    """Testa resistência a injeção de SQL no cadastro"""
+    from core.services import PacienteService
+    with pytest.raises(ValueError) as exc_info:
+        PacienteService.criar_paciente(db, {
+            "cpf": "12345678909'; DROP TABLE pacientes;--",
+            "nome": "Teste'; DELETE FROM pacientes;--",
+            "telefone": "11999999999", 
+            "data_nascimento": "2000-01-01",
+            "consentimento_lgpd": True
+        })
+    assert "inválido" in str(exc_info.value).lower()

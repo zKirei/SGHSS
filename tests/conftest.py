@@ -84,14 +84,16 @@ def setup_database():
 
 @pytest.fixture(scope="function")
 def db():
-    """Fornece uma sessão isolada para cada teste"""
     connection = engine.connect()
     transaction = connection.begin()
-    db = SessionLocal(bind=connection)
-    yield db
-    db.close()
-    transaction.rollback()
-    connection.close()
+    session = SessionLocal(bind=connection)
+    
+    try:
+        yield session
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
 
 # Fixtures para entidades de teste
 @pytest.fixture

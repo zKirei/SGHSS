@@ -1,7 +1,7 @@
 # core/security.py (versão corrigida e unificada)
 from passlib.context import CryptContext
 import re
-import html
+import bleach
 from cryptography.fernet import Fernet
 from typing import Tuple
 
@@ -13,29 +13,21 @@ pwd_context = CryptContext(schemes=['bcrypt', 'sha256_crypt'], deprecated='auto'
 # ----------------------------------------------
 # Funções de Sanitização e Validação
 # ----------------------------------------------
+
 def sanitizar_input(input_str: str) -> str:
-    if not input_str:
-        return ''
+    # Remove tags HTML
+    cleaned = bleach.clean(input_str, tags=[], attributes={}, strip=True)
     
-    # Remove tags HTML e substitui por espaço
-    sem_tags = re.sub(r'<[^>]+>', ' ', input_str)
+    # Remove comandos SQL e caracteres perigosos
+    cleaned = re.sub(
+        r'\b(DROP|DELETE|INSERT|ALTER|EXEC|OR|SELECT|UPDATE)\b|[;\'"()=#-]',
+        '', 
+        cleaned,
+        flags=re.IGNORECASE
+    )
     
-    # Escapa caracteres HTML (ex: < → &lt;)
-    escapado = html.escape(sem_tags)
-    
-    # Padrões de substituição
-    padroes = [
-        (r'\b(DROP|DELETE|INSERT|ALTER|EXEC|OR)\b', '', re.IGNORECASE),  # Remove comandos SQL
-        (r';|--|#|\/\*|\*\/|\\', ' '),  # Remove caracteres de injeção
-        (r"'", ""),  # Remove apóstrofos (substitui por vazio)
-        (r'(javascript|vbscript|data):', '', re.IGNORECASE),
-    ]
-    
-    for pattern, repl, *flags in padroes:
-        flag = flags[0] if flags else 0
-        escapado = re.sub(pattern, repl, escapado, flags=flag)
-    
-    return ' '.join(escapado.split()).strip()[:500]
+    # Normaliza espaços
+    return re.sub(r'\s+', ' ', cleaned).strip()[:500]
 
 # ----------------------------------------------
 # Validação de CPF

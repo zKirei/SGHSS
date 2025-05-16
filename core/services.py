@@ -136,18 +136,10 @@ class ProfissionalService:
 class LogAuditoria:
     @staticmethod
     def registrar(db: Session, acao: str, usuario: str, detalhes: str):
-        """Registro de logs com validação de ações permitidas."""
-        acoes_validas = ["CADASTRO", "ATUALIZACAO", "EXCLUSAO", "LOGIN", "AGENDAMENTO"]
-        acao_base = acao.split('_')[0]
-        
-        if acao_base not in acoes_validas:
-            raise ValueError(f"Ação '{acao}' não permitida")
-            
         log = LogAuditoria(
             acao=acao,
             usuario=usuario,
-            detalhes=detalhes[:500],  # Limite de caracteres
-            data_hora=datetime.now()
+            detalhes=detalhes
         )
         db.add(log)
         db.commit()
