@@ -111,12 +111,6 @@ class LogAuditoria(Base):
     usuario = Column(String(50), nullable=False)
     detalhes = Column(String(500))
 
-    # Construtor explícito (obrigatório)
-    def __init__(self, acao: str, usuario: str, detalhes: str):
-        self.acao = acao
-        self.usuario = usuario
-        self.detalhes = detalhes[:500]  # Limita a 500 caracteres
-
     # Método de registro simplificado
     @classmethod
     def registrar(cls, db: Session, acao: str, usuario: str, detalhes: str):

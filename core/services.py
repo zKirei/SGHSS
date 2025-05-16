@@ -132,13 +132,3 @@ class ProfissionalService:
             if "UNIQUE constraint failed" in str(e):
                 raise ValueError("CPF já cadastrado") from e
             raise
-
-class LogAuditoria:
-    @staticmethod
-    def registrar(db: Session, acao: str, usuario: str, detalhes: str):
-        log = LogAuditoria(
-            acao=acao,
-            usuario=usuario,
-            detalhes=detalhes
-        )
-        db.add(log)
