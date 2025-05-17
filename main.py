@@ -30,6 +30,8 @@ def criar_agendamento(dados: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail="Erro interno")
+    
+
 
 # --------------------------------------
 # Funções do Menu Interativo (ATUALIZADAS)
