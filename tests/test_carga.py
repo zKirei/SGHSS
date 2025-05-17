@@ -1,4 +1,4 @@
-from locust import HttpUser, task, between
+from locust import HttpUser, task, between, tag
 from datetime import datetime, timedelta
 import random
 import logging
@@ -24,7 +24,7 @@ class CargaUser(HttpUser):
                     break
             except Exception as e:
                 logger.error(f"Falha ao conectar: {str(e)}")
-                time.sleep(1)
+                time.sleep(2)
         else:
             raise Exception("API offline após 10 tentativas")
 
@@ -36,23 +36,23 @@ class CargaUser(HttpUser):
         ids = []
         for _ in range(quantidade):
             payload = {
-            "cpf": self.gerar_cpf_valido(),
-            "nome": f"Teste {uuid.uuid4().hex[:6]}",
-            "telefone": "(11) 99999-9999",
-            "data_nascimento": "2000-01-01",
-            "consentimento_lgpd": True
-        }
+                "cpf": self.gerar_cpf_valido(),
+                "nome": f"Teste {uuid.uuid4().hex[:6]}",
+                "telefone": "(11) 99999-9999",
+                "data_nascimento": "2000-01-01",
+                "consentimento_lgpd": True
+            }
         
-        # Ajuste para o endpoint de profissionais
-        if endpoint == "/profissionais":
-            payload.update({
-                "especialidade": "médico",  # Valor válido conforme o Enum
-                "senha": "SenhaSegura123@"  # Campo obrigatório
-            })
+            # Ajuste para o endpoint de profissionais
+            if endpoint == "/profissionais":
+                payload.update({
+                    "especialidade": "médico",  # Valor válido conforme o Enum
+                    "senha": "SenhaSegura123@"  # Campo obrigatório
+                })
 
             response = self.client.post(endpoint, json=payload)
             if response.status_code == 201:
-                ids.append(response.json()["id"])
+                ids.append(response.json().get("id"))
             else:
                 logger.error(f"Erro criando {endpoint}: {response.text}")
         return ids
@@ -76,32 +76,42 @@ class CargaUser(HttpUser):
         with self._lock:
             if profissional_id not in self._horarios_ocupados:
                 self._horarios_ocupados[profissional_id] = []
-            
-            for _ in range(10):
-                inicio = (datetime.now() + timedelta(
-                    days=random.randint(1, 365),
-                    hours=random.randint(8, 17)
-                )).replace(minute=0, second=0, microsecond=0).isoformat()
-                
-                fim = (datetime.fromisoformat(inicio) + timedelta(hours=1)).isoformat()
 
+            for _ in range(5):  # Tenta 5 vezes
+                dia = datetime.now() + timedelta(days=random.randint(1, 30))
+                inicio = dia.replace(
+                    hour=random.randint(8, 18),
+                    minute=0,
+                    second=0,
+                    microsecond=0
+                )
+                fim = inicio + timedelta(hours=1)
+
+                # Verifica conflitos
                 conflito = any(
-                    inicio < existente["fim"] and fim > existente["inicio"]
+                    (inicio < existente["fim"] and fim > existente["inicio"])
                     for existente in self._horarios_ocupados[profissional_id]
                 )
-                
+
                 if not conflito:
                     self._horarios_ocupados[profissional_id].append({
-                        "inicio": inicio,
-                        "fim": fim
+                        "inicio": inicio.isoformat(),
+                        "fim": fim.isoformat()
                     })
-                    return inicio, fim
+                    return inicio.isoformat(), fim.isoformat()
             return None, None
-
+        
+    @tag("carga")
     @task
     def criar_agendamento(self):
         if not self.profissionais_ids or not self.pacientes_ids:
             logger.error("Entidades não foram criadas corretamente")
+            self.environment.events.request.fire(
+                request_type="POST",
+                name="Agendamento/SetupError",
+                response_time=0,
+                exception=Exception("Falha no setup"),
+            )
             return
 
         profissional_id = random.choice(self.profissionais_ids)
@@ -125,11 +135,11 @@ class CargaUser(HttpUser):
                 "/agendamentos",
                 json=payload,
                 catch_response=True,
-                timeout=15
+                timeout=10
             ) as response:
                 if response.ok:
-                    logger.info(f"Agendamento {response.json()['id']} criado")
+                    response.success()
                 else:
-                    logger.error(f"Erro {response.status_code}: {response.text}")
+                    response.failure(f"Status {response.status_code}")
         except Exception as e:
-            logger.error(f"Falha crítica: {str(e)}", exc_info=True)
+            response.failure(f"Execção: {str(e)}")

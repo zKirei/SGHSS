@@ -1,10 +1,9 @@
-from core.services import PacienteService
+from core.services import PacienteService, ProfissionalService
 from core.database import SessionLocal, init_db, get_db
 from core.security import sanitizar_input, validar_cpf
 from datetime import datetime
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
-import argparse
 import subprocess
 from rich.console import Console
 from pathlib import Path
@@ -19,6 +18,10 @@ init_db()
 # --------------------------------------
 # Rotas da API
 # --------------------------------------
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}, 200
+
 @app.post("/agendamentos")
 def criar_agendamento(dados: dict, db: Session = Depends(get_db)):
     """Cria um novo agendamento de consulta"""
@@ -26,6 +29,26 @@ def criar_agendamento(dados: dict, db: Session = Depends(get_db)):
     try:
         agendamento = AgendamentoService.agendar_consulta(db, dados)
         return {"mensagem": "Agendamento criado!", "id": agendamento.id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Erro interno")
+    
+@app.post("/pacientes")
+def criar_paciente_api(dados: dict, db: Session = Depends(get_db)):
+    try:
+        paciente = PacienteService.criar_paciente(db, dados)
+        return {"mensagem": "Paciente criado!", "id": paciente.id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Erro interno")
+
+@app.post("/profissionais")
+def criar_profissional_api(dados: dict, db: Session = Depends(get_db)):
+    try:
+        profissional = ProfissionalService.criar_profissional(db, dados)
+        return {"mensagem": "Profissional criado!", "id": profissional.id}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

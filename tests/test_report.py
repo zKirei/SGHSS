@@ -1,4 +1,5 @@
 # tests/test_report.py
+import pytest
 from datetime import datetime
 from core.database import SessionLocal
 from core.reports import gerar_relatorio_financeiro
