@@ -39,37 +39,28 @@ def criar_agendamento(dados: dict, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail="Erro interno")
     
-@app.post("/pacientes")
+@app.post("/pacientes", status_code=201)
 def criar_paciente_api(dados: dict, db: Session = Depends(get_db)):
     try:
-        return PacienteService.criar_paciente(db, dados)
+        paciente = PacienteService.criar_paciente(db, dados)
+        return {"id": paciente.id, "nome": paciente.nome}  # Resposta estruturada
     except ValueError as e:
-        return JSONResponse(
-            status_code=400,
-            content={"mensagem": str(e)}
-        )
+        return JSONResponse(status_code=400, content={"erro": str(e)})
     except SQLAlchemyError as e:
-        return JSONResponse(
-            status_code=500,
-            content={"mensagem": f"Erro de banco: {str(e)}"}
-        )
+        return JSONResponse(status_code=500, content={"erro": f"Erro de banco: {str(e)}"})
     except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"mensagem": "Erro interno"}
-        )
+        return JSONResponse(status_code=500, content={"erro": "Erro interno"})
 
-@app.post("/profissionais")
+@app.post("/profissionais", status_code=201)
 def criar_profissional_api(dados: dict, db: Session = Depends(get_db)):
     try:
         profissional = ProfissionalService.criar_profissional(db, dados)
-        return {"mensagem": "Profissional criado!", "id": profissional.id}
+        return {"id": profissional.id, "nome": profissional.nome}  # Resposta estruturada
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
     
-
 
 # --------------------------------------
 # Funções do Menu Interativo (ATUALIZADAS)

@@ -1,5 +1,6 @@
 from locust import HttpUser, task, between, events
 from datetime import datetime, timedelta
+from core.security import validar_cpf
 import random
 import logging
 import uuid
@@ -11,7 +12,7 @@ logger = logging.getLogger("test_carga")
 
 class CargaUser(HttpUser):
     host = "http://localhost:5000"
-    wait_time = between(1, 3)
+    wait_time = between(1, 5)
     
     _horarios_ocupados = {}
     _db_lock = Lock()
@@ -45,9 +46,11 @@ class CargaUser(HttpUser):
                     with self._db_lock:  # Bloqueio para operações críticas
                         response = self.client.post(endpoint, json=payload, timeout=10)
                         
-                        if response.status_code == 201 and response.json().get("id"):
+                        if response.status_code == 201 and "id" in response.json():
                             ids.append(response.json()["id"])
                             break
+                        else:
+                            self._reportar_falha(...)
                         
                         # Tratamento específico para erros de concorrência
                         if "database is locked" in response.text:
@@ -87,21 +90,13 @@ class CargaUser(HttpUser):
     def _gerar_cpf_valido_unico(self) -> str:
         """Gera CPFs válidos únicos com verificação de dígitos"""
         while True:
-            # Geração correta de CPF válido
             cpf = [random.randint(0,9) for _ in range(9)]
-            
-            # Cálculo do primeiro dígito
-            soma = sum(x * (10 - i) for i, x in enumerate(cpf))
-            d1 = 11 - (soma % 11)
-            cpf.append(d1 if d1 < 10 else 0)
-            
-            # Cálculo do segundo dígito
-            soma = sum(x * (11 - i) for i, x in enumerate(cpf))
-            d2 = 11 - (soma % 11)
-            cpf.append(d2 if d2 < 10 else 0)
-            
+            for _ in range(2):
+                soma = sum((len(cpf)+1 - i)*num for i, num in enumerate(cpf))
+                digito = 11 - (soma % 11)
+                cpf.append(digito if digito < 10 else 0)
             cpf_str = ''.join(map(str, cpf))
-            if cpf_str not in self._cpfs_gerados:
+            if validar_cpf(cpf_str)[0] and cpf_str not in self._cpfs_gerados:
                 self._cpfs_gerados.add(cpf_str)
                 return cpf_str
 
