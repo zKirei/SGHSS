@@ -9,9 +9,9 @@ DATABASE_URL = "sqlite:///test.db"
 engine = create_engine(
     DATABASE_URL,
     poolclass=QueuePool,  # Forçar uso do QueuePool
-    pool_size=50,
+    pool_size=100,
     pool_pre_ping=True,  #ajuste conforme necessidade
-    max_overflow=100, #ajuste conforme necessidade
+    max_overflow=200, #ajuste conforme necessidade
     connect_args={"check_same_thread": False}
 )
 
