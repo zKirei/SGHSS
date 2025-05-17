@@ -5,12 +5,13 @@ from sqlalchemy.pool import StaticPool
 from .models import Base  # Importação correta da Base
 
 # Configuração do banco de dados em memória para testes
-DATABASE_URL = "sqlite:///test.db?check_same_thread=False"  # Arquivo físico
+DATABASE_URL = "sqlite:///test.db"  # Arquivo físico
 engine = create_engine(
     DATABASE_URL,
     pool_size=100,
     max_overflow=50,
-    pool_pre_ping=True  # Verifica conexões antes de usar
+    pool_pre_ping=True,
+    connect_args={"check_same_thread": False}  # Verifica conexões antes de usar
 )
 
 SessionLocal = sessionmaker(
