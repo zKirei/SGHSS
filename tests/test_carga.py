@@ -11,7 +11,7 @@ logger = logging.getLogger("test_carga")
 
 class CargaUser(HttpUser):
     host = "http://localhost:5000"
-    wait_time = between(2, 5)
+    wait_time = between(1, 3)
     
     _horarios_ocupados = {}
     _db_lock = Lock()

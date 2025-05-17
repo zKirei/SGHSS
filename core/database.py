@@ -8,8 +8,8 @@ from .models import Base  # Importação correta da Base
 DATABASE_URL = "sqlite:///test.db?check_same_thread=False"  # Arquivo físico
 engine = create_engine(
     DATABASE_URL,
-    pool_size=20,
-    max_overflow=10,
+    pool_size=100,
+    max_overflow=50,
     pool_pre_ping=True  # Verifica conexões antes de usar
 )
 
