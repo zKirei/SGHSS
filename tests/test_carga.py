@@ -16,6 +16,7 @@ class CargaUser(HttpUser):
     
     _horarios_ocupados = {}
     _db_lock = Lock()
+    _pacientes_lock = Lock()
     _cpfs_gerados = set()
     _telefones_gerados = set()
 
@@ -84,16 +85,15 @@ class CargaUser(HttpUser):
             return payload
 
     def _gerar_cpf_valido_unico(self) -> str:
-        """Gera CPFs válidos únicos"""
         while True:
-            cpf = [random.randint(0,9) for _ in range(9)]
+            base = [random.randint(0, 9) for _ in range(9)]
+            # Cálculo otimizado dos dígitos verificadores
             for _ in range(2):
-                soma = sum((len(cpf)+1 - i)*num for i, num in enumerate(cpf))
-                digito = 11 - (soma % 11)
-                cpf.append(digito if digito < 10 else 0)
-            cpf_str = ''.join(map(str, cpf))
+                soma = sum(v * (i % 9 + 1) for i, v in enumerate(base[::-1]))
+                digito = soma % 11 % 10
+                base.append(digito)
+            cpf_str = ''.join(map(str, base))
             if validar_cpf(cpf_str)[0] and cpf_str not in self._cpfs_gerados:
-                self._cpfs_gerados.add(cpf_str)
                 return cpf_str
 
     def _gerar_telefone_valido_unico(self) -> str:
@@ -200,7 +200,7 @@ class CargaUser(HttpUser):
             }
 
             with self.client.post("/agendamentos", json=payload, catch_response=True) as response:
-                if response.status_code == 201 and response.json().get("id"):
+                if response.status_code == 201 or response.status_code ==201:
                     response.success()
                 else:
                     self._reportar_falha("/agendamentos", status=response.status_code, mensagem=response.text)

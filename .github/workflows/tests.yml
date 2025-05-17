@@ -20,7 +20,7 @@ jobs:
         run: pytest tests/ --cov=core --cov-report=html
       
       - name: Run Load Test
-        run: locust -f tests/test_carga.py --headless -u 100 -r 10 --run-time 1m
+        run: locust -f tests/test_carga.py --headless -u 500 -r 50 --run-time 5m
       
       - name: Upload Reports
         uses: actions/upload-artifact@v2

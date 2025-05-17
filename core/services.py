@@ -44,7 +44,6 @@ class PacienteService:
             )
 
             db.add(paciente)
-            db.commit()
             
             # Registro do log usando o modelo SQLAlchemy diretamente
             log = LogAuditoria(

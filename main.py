@@ -5,8 +5,12 @@ from core.models import Paciente
 from datetime import datetime
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.responses import JSONResponse
+from fastapi_cache.backends.inmemory import InMemoryBackend
+from fastapi_cache.decorator import cache
+from fastapi_cache import FastAPICache
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
+from contextlib import asynccontextmanager
 import subprocess
 from rich.console import Console
 from pathlib import Path
@@ -16,8 +20,20 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Configuração do FastAPI
-app = FastAPI(title="SGHSS API", description="Sistema de Gestão Hospitalar")
+# Configuração do Lifespan primeiro
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    FastAPICache.init(InMemoryBackend(), prefix="cache")  # Sem Redis
+    yield
+    logger.info("Encerrando aplicação")
+
+# Criação da aplicação FastAPI com lifespan
+app = FastAPI(
+    title="SGHSS API",
+    description="Sistema de Gestão Hospitalar",
+    lifespan=lifespan  # Usando o novo sistema de lifespan
+)
+
 console = Console()
 init_db()
 
@@ -26,16 +42,18 @@ init_db()
 # --------------------------------------
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "timestamp": datetime.now().isoformat()}
+    return {"status": "ok"}
 
 @app.get("/pacientes/{paciente_id}")
+@cache(expire=300)
 def obter_paciente(paciente_id: int, db: Session = Depends(get_db)):
+    """Obtém detalhes de um paciente com cache"""
     paciente = db.query(Paciente).filter(Paciente.id == paciente_id).first()
     if not paciente:
         raise HTTPException(status_code=404, detail="Paciente não encontrado")
     return paciente
 
-@app.post("/agendamentos")
+@app.post("/agendamentos", status_code=201)
 def criar_agendamento(dados: dict, db: Session = Depends(get_db)):
     """Cria um novo agendamento de consulta"""
     from core.services import AgendamentoService
@@ -46,12 +64,13 @@ def criar_agendamento(dados: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail="Erro interno")
-    
+
 @app.post("/pacientes", status_code=201)
 def criar_paciente_api(dados: dict, db: Session = Depends(get_db)):
+    """Cria novo paciente com validações"""
     try:
         paciente = PacienteService.criar_paciente(db, dados)
-        return {"id": paciente.id, "nome": paciente.nome}  # Resposta estruturada
+        return {"id": paciente.id, "nome": paciente.nome}
     except ValueError as e:
         return JSONResponse(status_code=400, content={"erro": str(e)})
     except SQLAlchemyError as e:
@@ -61,9 +80,10 @@ def criar_paciente_api(dados: dict, db: Session = Depends(get_db)):
 
 @app.post("/profissionais", status_code=201)
 def criar_profissional_api(dados: dict, db: Session = Depends(get_db)):
+    """Cria novo profissional de saúde"""
     try:
         profissional = ProfissionalService.criar_profissional(db, dados)
-        return {"id": profissional.id, "nome": profissional.nome}  # Resposta estruturada
+        return {"id": profissional.id, "nome": profissional.nome}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -169,11 +189,19 @@ def menu():
 # Ponto de Entrada Principal
 # --------------------------------------
 if __name__ == "__main__":
-    # Inicia o servidor API em segundo plano
+    # Configuração do servidor
+    server_config = {
+        "app": app, 
+        "host": "127.0.0.1",
+        "port": 5000,
+        "log_level": "info",
+        "reload": False 
+    }
+
+    # Inicia o servidor em segundo plano
     server_thread = threading.Thread(
         target=uvicorn.run,
-        args=(app,),
-        kwargs={"host": "127.0.0.1", "port": 5000, "log_level": "info"},
+        kwargs=server_config,
         daemon=True
     )
     server_thread.start()
