@@ -12,7 +12,7 @@ logger = logging.getLogger("test_carga")
 
 class CargaUser(HttpUser):
     host = "http://localhost:5000"
-    wait_time = between(1, 5)
+    wait_time = between(1, 3)
     
     _horarios_ocupados = {}
     _db_lock = Lock()
@@ -34,7 +34,7 @@ class CargaUser(HttpUser):
                 time.sleep(2 ** tentativa)
             except Exception as e:
                 logger.warning(f"Tentativa {tentativa+1}: API não respondendo - {str(e)}")
-        raise ConnectionError("API não respondeu após {max_tentativas} tentativas")
+        raise ConnectionError(f"API não respondeu após {max_tentativas} tentativas")
 
     def _criar_entidades_com_retry(self, endpoint: str, quantidade: int, max_tentativas=3) -> List[int]:
         """Cria entidades com mecanismo de repetição"""
@@ -43,25 +43,21 @@ class CargaUser(HttpUser):
             for tentativa in range(max_tentativas):
                 payload = self._gerar_payload(endpoint)
                 try:
-                    with self._db_lock:  # Bloqueio para operações críticas
+                    with self._db_lock:
                         response = self.client.post(endpoint, json=payload, timeout=10)
                         
                         if response.status_code == 201 and "id" in response.json():
                             ids.append(response.json()["id"])
                             break
                         else:
-                            self._reportar_falha(...)
-                        
-                        # Tratamento específico para erros de concorrência
+                            self._reportar_falha(
+                                endpoint=endpoint,
+                                status=response.status_code,
+                                mensagem=response.text
+                            )
                         if "database is locked" in response.text:
                             time.sleep(0.1 * (tentativa + 1))
                             continue
-                        
-                        self._reportar_falha(
-                            endpoint=endpoint,
-                            status=response.status_code,
-                            mensagem=response.text
-                        )
                 except Exception as e:
                     self._reportar_falha(endpoint=endpoint, exception=e)
                     time.sleep(0.5)
@@ -71,7 +67,7 @@ class CargaUser(HttpUser):
 
     def _gerar_payload(self, endpoint: str) -> dict:
         """Gera payloads únicos e válidos"""
-        with self._db_lock:  # Thread-safe para geração de dados
+        with self._db_lock:
             payload = {
                 "cpf": self._gerar_cpf_valido_unico(),
                 "nome": f"Teste-{uuid.uuid4().hex[:6]}",
@@ -88,7 +84,7 @@ class CargaUser(HttpUser):
             return payload
 
     def _gerar_cpf_valido_unico(self) -> str:
-        """Gera CPFs válidos únicos com verificação de dígitos"""
+        """Gera CPFs válidos únicos"""
         while True:
             cpf = [random.randint(0,9) for _ in range(9)]
             for _ in range(2):
@@ -101,10 +97,10 @@ class CargaUser(HttpUser):
                 return cpf_str
 
     def _gerar_telefone_valido_unico(self) -> str:
-        """Gera números de telefone no formato brasileiro"""
+        """Gera telefones válidos únicos"""
         while True:
             ddd = random.choice(["11", "21", "31", "48", "51"])
-            numero = f"9{random.randint(1000000, 9999999)}"  # Números móveis
+            numero = f"9{random.randint(1000000, 9999999)}"
             completo = f"({ddd}) {numero[:4]}-{numero[4:]}"
             if completo not in self._telefones_gerados:
                 self._telefones_gerados.add(completo)
@@ -112,7 +108,7 @@ class CargaUser(HttpUser):
 
     def _reportar_falha(self, endpoint: str, status: Optional[int] = None, 
                       mensagem: Optional[str] = None, exception: Optional[Exception] = None):
-        """Log detalhado de falhas"""
+        """Registra falhas detalhadamente"""
         erro = f"Falha em {endpoint}: "
         if status:
             erro += f"[Status {status}] "
@@ -132,9 +128,56 @@ class CargaUser(HttpUser):
             url=endpoint
         )
 
-    @task(3)
+    def _gerar_horario_unico(self, profissional_id: int) -> tuple:
+        """Gera horários sem conflitos"""
+        with self._db_lock:
+            registros = self._horarios_ocupados.setdefault(profissional_id, [])
+            
+            for _ in range(5):
+                dia = datetime.now() + timedelta(days=random.randint(1, 30))
+                inicio = dia.replace(
+                    hour=random.randint(8, 18),
+                    minute=0,
+                    second=0,
+                    microsecond=0
+                )
+                fim = inicio + timedelta(hours=1)
+
+                if not any(
+                    (inicio <= existente["fim"]) and (fim >= existente["inicio"])
+                    for existente in registros
+                ):
+                    registros.append({"inicio": inicio, "fim": fim})
+                    return inicio.isoformat(), fim.isoformat()
+            
+            return None, None
+
+    # ==========================================
+    # TAREFAS COM DISTRIBUIÇÃO
+    # ==========================================
+    @task(5)  # 50% das requisições
+    def criar_paciente(self):
+        """Simula criação de pacientes em massa"""
+        try:
+            payload = {
+                "cpf": self._gerar_cpf_valido_unico(),
+                "nome": f"Paciente {uuid.uuid4().hex[:6]}",
+                "telefone": self._gerar_telefone_valido_unico(),
+                "data_nascimento": "2000-01-01",
+                "consentimento_lgpd": True
+            }
+            with self.client.post("/pacientes", json=payload, catch_response=True) as response:
+                if response.status_code == 201:
+                    response.success()
+                    self.pacientes_ids.append(response.json()["id"])  # Atualiza lista de IDs
+                else:
+                    self._reportar_falha("/pacientes", status=response.status_code, mensagem=response.text)
+        except Exception as e:
+            self._reportar_falha("/pacientes", exception=e)
+
+    @task(3)  # 30% das requisições
     def criar_agendamento(self):
-        """Tarefa principal com tratamento robusto de erros"""
+        """Cria agendamentos com tratamento de conflitos"""
         if not self.profissionais_ids or not self.pacientes_ids:
             self._reportar_falha("Agendamento", mensagem="Entidades não inicializadas")
             return
@@ -165,38 +208,13 @@ class CargaUser(HttpUser):
         except Exception as e:
             self._reportar_falha("/agendamentos", exception=e)
 
-    def _gerar_horario_unico(self, profissional_id: int) -> tuple:
-        """Gera horários sem conflitos com algoritmo otimizado"""
-        with self._db_lock:
-            registros = self._horarios_ocupados.setdefault(profissional_id, [])
-            
-            for _ in range(5):  # Tenta 5 horários diferentes
-                dia = datetime.now() + timedelta(days=random.randint(1, 30))
-                inicio = dia.replace(
-                    hour=random.randint(8, 18),
-                    minute=0,
-                    second=0,
-                    microsecond=0
-                )
-                fim = inicio + timedelta(hours=1)
-
-                # Verificação de sobreposição eficiente
-                if not any(
-                    (inicio <= existente["fim"]) and (fim >= existente["inicio"])
-                    for existente in registros
-                ):
-                    registros.append({"inicio": inicio, "fim": fim})
-                    return inicio.isoformat(), fim.isoformat()
-            
-            return None, None
-
-    @task(1)
+    @task(2)  # 20% das requisições
     def consultar_paciente(self):
-        """Tarefa secundária para simular consultas"""
+        """Consulta pacientes existentes"""
         if self.pacientes_ids:
             paciente_id = random.choice(self.pacientes_ids)
             with self.client.get(f"/pacientes/{paciente_id}", catch_response=True) as response:
                 if response.status_code == 200:
                     response.success()
                 else:
-                    self._reportar_falha("/pacientes/{id}", status=response.status_code)
+                    self._reportar_falha(f"/pacientes/{paciente_id}", status=response.status_code)

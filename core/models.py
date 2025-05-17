@@ -12,9 +12,9 @@ class Paciente(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     nome = Column(String(100), nullable=False)
-    cpf = Column(String(11), unique=True, nullable=False)
+    cpf = Column(String(11), unique=True, nullable=False, index=True)
     data_nascimento = Column(Date, nullable=False)
-    telefone = Column(String(15), nullable=False)
+    telefone = Column(String(15), nullable=False, index=True)
     historico_clinico = Column(Text)
     alergias = Column(Text)
     consentimento_lgpd = Column(Boolean, nullable=False)

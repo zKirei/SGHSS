@@ -1,6 +1,7 @@
 from core.services import PacienteService, ProfissionalService
 from core.database import SessionLocal, init_db, get_db
 from core.security import sanitizar_input, validar_cpf
+from core.models import Paciente
 from datetime import datetime
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.responses import JSONResponse
@@ -25,7 +26,14 @@ init_db()
 # --------------------------------------
 @app.get("/health")
 def health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "timestamp": datetime.now().isoformat()}
+
+@app.get("/pacientes/{paciente_id}")
+def obter_paciente(paciente_id: int, db: Session = Depends(get_db)):
+    paciente = db.query(Paciente).filter(Paciente.id == paciente_id).first()
+    if not paciente:
+        raise HTTPException(status_code=404, detail="Paciente não encontrado")
+    return paciente
 
 @app.post("/agendamentos")
 def criar_agendamento(dados: dict, db: Session = Depends(get_db)):
