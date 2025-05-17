@@ -1,116 +1,147 @@
-from locust import HttpUser, task, between, tag
+from locust import HttpUser, task, between, events
 from datetime import datetime, timedelta
 import random
 import logging
 import uuid
 import time
 from threading import Lock
+from typing import Optional
 
 logger = logging.getLogger("test_carga")
 
 class CargaUser(HttpUser):
     host = "http://localhost:5000"
-    wait_time = between(1, 3)  # Intervalo mais realista
-
-    # Variáveis de classe para controle de estado compartilhado
+    wait_time = between(2, 5)
+    
     _horarios_ocupados = {}
-    _lock = Lock()
+    _db_lock = Lock()
+    _cpfs_gerados = set()
+    _telefones_gerados = set()
 
     def on_start(self):
-        # Verifica se a API está online
-        for _ in range(10):
-            try:
-                if self.client.get("/health").status_code == 200:
-                    break
-            except Exception as e:
-                logger.error(f"Falha ao conectar: {str(e)}")
-                time.sleep(2)
-        else:
-            raise Exception("API offline após 10 tentativas")
-
-        # Criar pacientes e profissionais dinamicamente
+        self._aguardar_api_pronta()
         self.pacientes_ids = self._criar_entidades("/pacientes", 5)
         self.profissionais_ids = self._criar_entidades("/profissionais", 3)
 
-    def _criar_entidades(self, endpoint, quantidade):
+    def _aguardar_api_pronta(self):
+        for _ in range(10):
+            try:
+                if self.client.get("/health", timeout=5).status_code == 200:
+                    return
+            except Exception as e:
+                logger.debug(f"API não respondendo: {str(e)}")
+                time.sleep(2)
+        raise ConnectionError("API não respondeu após 10 tentativas")
+
+    def _criar_entidades(self, endpoint: str, quantidade: int) -> list:
         ids = []
         for _ in range(quantidade):
-            payload = {
-                "cpf": self.gerar_cpf_valido(),
-                "nome": f"Teste {uuid.uuid4().hex[:6]}",
-                "telefone": "(11) 99999-9999",
-                "data_nascimento": "2000-01-01",
-                "consentimento_lgpd": True
-            }
-        
-            # Ajuste para o endpoint de profissionais
-            if endpoint == "/profissionais":
-                payload.update({
-                    "especialidade": "médico",  # Valor válido conforme o Enum
-                    "senha": "SenhaSegura123@"  # Campo obrigatório
-                })
-
-            response = self.client.post(endpoint, json=payload)
-            if response.status_code == 201:
-                ids.append(response.json().get("id"))
-            else:
-                logger.error(f"Erro criando {endpoint}: {response.text}")
+            payload = self._gerar_payload(endpoint)
+            try:
+                with self.client.post(endpoint, json=payload, catch_response=True) as response:
+                    if response.status_code == 201:
+                        ids.append(response.json().get("id"))
+                    else:
+                        self._reportar_falha(
+                            endpoint=endpoint,
+                            status=response.status_code,
+                            mensagem=response.text
+                        )
+            except Exception as e:
+                self._reportar_falha(endpoint=endpoint, exception=e)
         return ids
 
-    def gerar_cpf_valido(self):
-        cpf = [random.randint(0,9) for _ in range(9)]
+    def _gerar_payload(self, endpoint: str) -> dict:
+        payload = {
+            "cpf": self._gerar_cpf_unico(),
+            "nome": f"Teste-{uuid.uuid4().hex[:6]}",
+            "telefone": self._gerar_telefone_unico(),
+            "data_nascimento": "2000-01-01",
+            "consentimento_lgpd": True
+        }
         
-        # Calcula primeiro dígito
-        soma = sum(x * (10 - i) for i, x in enumerate(cpf))
-        d1 = 11 - (soma % 11)
-        cpf.append(d1 if d1 < 10 else 0)
-        
-        # Calcula segundo dígito
-        soma = sum(x * (11 - i) for i, x in enumerate(cpf))
-        d2 = 11 - (soma % 11)
-        cpf.append(d2 if d2 < 10 else 0)
-        
-        return ''.join(map(str, cpf))
+        if endpoint == "/profissionais":
+            payload.update({
+                "especialidade": "médico",
+                "senha": "SenhaSegura123@"
+            })
+        return payload
 
-    def gerar_horario_unico(self, profissional_id):
+    def _gerar_cpf_unico(self) -> str:
+        while True:
+            cpf = [random.randint(0,9) for _ in range(9)]
+            
+            # Cálculo do primeiro dígito
+            soma = sum(x * (10 - i) for i, x in enumerate(cpf))
+            d1 = 11 - (soma % 11)
+            cpf.append(d1 if d1 < 10 else 0)
+            
+            # Cálculo do segundo dígito
+            soma = sum(x * (11 - i) for i, x in enumerate(cpf))
+            d2 = 11 - (soma % 11)
+            cpf.append(d2 if d2 < 10 else 0)
+            
+            cpf_str = ''.join(map(str, cpf))
+            if cpf_str not in self._cpfs_gerados:
+                self._cpfs_gerados.add(cpf_str)
+                return cpf_str
+
+    def _gerar_telefone_unico(self) -> str:
+        while True:
+            numero = f"11{random.randint(80000000, 99999999)}"
+            if numero not in self._telefones_gerados:
+                self._telefones_gerados.add(numero)
+                return f"({numero[:2]}) {numero[2:7]}-{numero[7:]}"
+
+    def _reportar_falha(self, endpoint: str, status: Optional[int] = None, 
+                      mensagem: Optional[str] = None, exception: Optional[Exception] = None):
+        erro = f"Falha criando {endpoint}: "
+        if status:
+            erro += f"Status {status} - "
+        if mensagem:
+            erro += f"Resposta: {mensagem[:200]}"
+        if exception:
+            erro += f"Exceção: {str(exception)}"
+            
+        logger.error(erro)
+        events.request.fire(
+            request_type="POST",
+            name=f"{endpoint}/Error",
+            response_time=0,
+            response_length=0,
+            exception=exception,
+            context={},
+            url=endpoint
+        )
+
+    def gerar_horario_unico(self, profissional_id: int) -> tuple:
         with self._lock:
-            if profissional_id not in self._horarios_ocupados:
-                self._horarios_ocupados[profissional_id] = []
-
-            for _ in range(5):  # Tenta 5 vezes
-                dia = datetime.now() + timedelta(days=random.randint(1, 30))
-                inicio = dia.replace(
+            registros = self._horarios_ocupados.setdefault(profissional_id, [])
+            
+            for _ in range(5):
+                inicio = datetime.now().replace(
                     hour=random.randint(8, 18),
                     minute=0,
                     second=0,
                     microsecond=0
-                )
+                ) + timedelta(days=random.randint(1, 30))
+                
                 fim = inicio + timedelta(hours=1)
-
-                # Verifica conflitos
-                conflito = any(
-                    (inicio < existente["fim"] and fim > existente["inicio"])
-                    for existente in self._horarios_ocupados[profissional_id]
-                )
-
-                if not conflito:
-                    self._horarios_ocupados[profissional_id].append({
-                        "inicio": inicio.isoformat(),
-                        "fim": fim.isoformat()
-                    })
+                
+                if not any(
+                    inicio < existente["fim"] and fim > existente["inicio"]
+                    for existente in registros
+                ):
+                    registros.append({"inicio": inicio, "fim": fim})
                     return inicio.isoformat(), fim.isoformat()
             return None, None
-        
-    @tag("carga")
+
     @task
     def criar_agendamento(self):
         if not self.profissionais_ids or not self.pacientes_ids:
-            logger.error("Entidades não foram criadas corretamente")
-            self.environment.events.request.fire(
-                request_type="POST",
-                name="Agendamento/SetupError",
-                response_time=0,
-                exception=Exception("Falha no setup"),
+            self._reportar_falha(
+                endpoint="Agendamento",
+                mensagem="Falha no setup: Entidades não criadas"
             )
             return
 
@@ -119,7 +150,10 @@ class CargaUser(HttpUser):
         inicio, fim = self.gerar_horario_unico(profissional_id)
 
         if not inicio:
-            logger.error(f"Falha ao gerar horário para profissional {profissional_id}")
+            self._reportar_falha(
+                endpoint="Agendamento",
+                mensagem="Falha ao gerar horário único"
+            )
             return
 
         payload = {
@@ -127,7 +161,7 @@ class CargaUser(HttpUser):
             "profissional_id": profissional_id,
             "inicio": inicio,
             "fim": fim,
-            "request_id": str(uuid.uuid4())
+            "tipo_consulta": "presencial"
         }
 
         try:
@@ -137,9 +171,16 @@ class CargaUser(HttpUser):
                 catch_response=True,
                 timeout=10
             ) as response:
-                if response.ok:
+                if response.status_code == 201:
                     response.success()
                 else:
-                    response.failure(f"Status {response.status_code}")
+                    self._reportar_falha(
+                        endpoint="/agendamentos",
+                        status=response.status_code,
+                        mensagem=response.text
+                    )
         except Exception as e:
-            response.failure(f"Execção: {str(e)}")
+            self._reportar_falha(
+                endpoint="/agendamentos",
+                exception=e
+            )

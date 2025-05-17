@@ -3,12 +3,17 @@ from core.database import SessionLocal, init_db, get_db
 from core.security import sanitizar_input, validar_cpf
 from datetime import datetime
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 import subprocess
 from rich.console import Console
 from pathlib import Path
 import uvicorn
 import threading
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Configuração do FastAPI
 app = FastAPI(title="SGHSS API", description="Sistema de Gestão Hospitalar")
@@ -20,7 +25,7 @@ init_db()
 # --------------------------------------
 @app.get("/health")
 def health_check():
-    return {"status": "ok"}, 200
+    return {"status": "ok"}
 
 @app.post("/agendamentos")
 def criar_agendamento(dados: dict, db: Session = Depends(get_db)):
@@ -37,12 +42,22 @@ def criar_agendamento(dados: dict, db: Session = Depends(get_db)):
 @app.post("/pacientes")
 def criar_paciente_api(dados: dict, db: Session = Depends(get_db)):
     try:
-        paciente = PacienteService.criar_paciente(db, dados)
-        return {"mensagem": "Paciente criado!", "id": paciente.id}
+        return PacienteService.criar_paciente(db, dados)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return JSONResponse(
+            status_code=400,
+            content={"mensagem": str(e)}
+        )
+    except SQLAlchemyError as e:
+        return JSONResponse(
+            status_code=500,
+            content={"mensagem": f"Erro de banco: {str(e)}"}
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Erro interno")
+        return JSONResponse(
+            status_code=500,
+            content={"mensagem": "Erro interno"}
+        )
 
 @app.post("/profissionais")
 def criar_profissional_api(dados: dict, db: Session = Depends(get_db)):
@@ -52,7 +67,7 @@ def criar_profissional_api(dados: dict, db: Session = Depends(get_db)):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Erro interno")
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
     
 
 
